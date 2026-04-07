@@ -55,7 +55,8 @@ export function CreateOrderDialog({
   const products = selectedCustomer?.products ?? [];
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    queueMicrotask(() => {
       setTab("existing");
       setCustomerId("");
       setProductId("");
@@ -63,12 +64,8 @@ export function CreateOrderDialog({
       setNewProductCode("");
       setPlannedQty("");
       setOperator("");
-    }
+    });
   }, [open]);
-
-  useEffect(() => {
-    setProductId("");
-  }, [customerId]);
 
   function handleSubmit() {
     const qty = parseInt(plannedQty, 10);
@@ -147,7 +144,10 @@ export function CreateOrderDialog({
               <Label>客户</Label>
               <Select
                 value={customerId}
-                onValueChange={(v) => setCustomerId(v ?? "")}
+                onValueChange={(v) => {
+                  setCustomerId(v ?? "");
+                  setProductId("");
+                }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="请选择客户" />

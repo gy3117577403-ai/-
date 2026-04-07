@@ -62,7 +62,8 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
   });
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    queueMicrotask(() => {
       setCategory("JIG");
       reset({
         applicant: "",
@@ -71,7 +72,7 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
         estimatedCost: 0,
         link: "",
       });
-    }
+    });
   }, [open, reset]);
 
   function onSubmit(values: FormValues) {

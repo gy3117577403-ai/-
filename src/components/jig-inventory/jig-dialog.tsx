@@ -58,7 +58,8 @@ export function JigDialog({ open, onOpenChange, editData }: JigDialogProps) {
   });
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    queueMicrotask(() => {
       setServerError("");
       if (editData) {
         reset({
@@ -70,7 +71,7 @@ export function JigDialog({ open, onOpenChange, editData }: JigDialogProps) {
       } else {
         reset({ modelCode: "", matingModel: "", quantity: 0, remarks: "" });
       }
-    }
+    });
   }, [open, editData, reset]);
 
   function onSubmit(values: FormValues) {

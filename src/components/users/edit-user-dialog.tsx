@@ -47,11 +47,12 @@ export function EditUserDialog({
   const [, startTransition] = useTransition();
 
   useEffect(() => {
-    if (user && open) {
+    if (!user || !open) return;
+    queueMicrotask(() => {
       setName(user.name);
       setRole(user.role);
       setPassword(""); // 默认留空，留空代表不修改
-    }
+    });
   }, [user, open]);
 
   function handleUpdate() {

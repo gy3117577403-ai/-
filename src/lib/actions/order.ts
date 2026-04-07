@@ -4,6 +4,64 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
+import { SHORTAGE_UNMATCHED_JIG_PREFIX } from "@/lib/order-constants";
+
+async function loadJigInventoryMap(): Promise<Map<string, number>> {
+  const inventories = await prisma.jigBaseInventory.findMany({
+    where: { category: "JIG" },
+  });
+  return new Map(inventories.map((i) => [i.modelCode, i.quantity]));
+}
+
+/**
+ * 深度 BOM 齐套核算：先校验每条 BOM 是否已关联治具型号，再校验总仓库存。
+ */
+export async function evaluateOrderFulfillment(
+  productId: string,
+  invMap: Map<string, number>
+): Promise<{
+  status: "READY" | "SHORTAGE" | "NO_BOM";
+  shortageInfo: string | null;
+}> {
+  const bomItems = await prisma.bomItem.findMany({
+    where: { productId },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (bomItems.length === 0) {
+    return { status: "NO_BOM", shortageInfo: null };
+  }
+
+  const unmatched = bomItems.filter((b) => !b.jigModel?.trim());
+  if (unmatched.length > 0) {
+    const names = unmatched.map((b) => b.connectorModel).join(", ");
+    return {
+      status: "SHORTAGE",
+      shortageInfo: `${SHORTAGE_UNMATCHED_JIG_PREFIX} ${names}`,
+    };
+  }
+
+  const shortages: string[] = [];
+  for (const item of bomItems) {
+    const jig = item.jigModel!.trim();
+    const stock = invMap.get(jig) ?? -1;
+    if (stock < 0) {
+      shortages.push(
+        `${jig} — 总仓无此治具 (连接器: ${item.connectorModel})`
+      );
+    } else if (stock < item.quantity) {
+      shortages.push(
+        `${jig} — 需${item.quantity}，库存${stock} (连接器: ${item.connectorModel})`
+      );
+    }
+  }
+
+  if (shortages.length > 0) {
+    return { status: "SHORTAGE", shortageInfo: shortages.join("; ") };
+  }
+
+  return { status: "READY", shortageInfo: null };
+}
 
 export async function getOrders() {
   return prisma.order.findMany({
@@ -44,7 +102,7 @@ export async function createOrder(input: CreateOrderInput) {
   if (!operator.trim()) throw new Error("请填写操作员");
 
   let productId: string;
-  let status = "READY";
+  let status: "READY" | "SHORTAGE" | "NO_BOM" = "READY";
   let shortageInfo: string | null = null;
 
   if (mode === "new") {
@@ -73,41 +131,10 @@ export async function createOrder(input: CreateOrderInput) {
     if (!input.productId) throw new Error("请选择产品");
     productId = input.productId;
 
-    const bomItems = await prisma.bomItem.findMany({
-      where: { productId },
-    });
-
-    const jigItems = bomItems.filter((b) => b.jigModel);
-
-    if (jigItems.length === 0) {
-      status = "NO_BOM";
-    } else {
-      const shortages: string[] = [];
-
-      for (const item of jigItems) {
-        const inv = await prisma.jigBaseInventory.findFirst({
-          where: { modelCode: item.jigModel!, category: "JIG" },
-        });
-
-        if (!inv) {
-          shortages.push(
-            `${item.jigModel} — 总仓无此治具 (连接器: ${item.connectorModel})`
-          );
-          continue;
-        }
-
-        if (inv.quantity < item.quantity) {
-          shortages.push(
-            `${item.jigModel} — 需${item.quantity}，库存${inv.quantity} (连接器: ${item.connectorModel})`
-          );
-        }
-      }
-
-      if (shortages.length > 0) {
-        status = "SHORTAGE";
-        shortageInfo = shortages.join("; ");
-      }
-    }
+    const invMap = await loadJigInventoryMap();
+    const result = await evaluateOrderFulfillment(productId, invMap);
+    status = result.status;
+    shortageInfo = result.shortageInfo;
   }
 
   const orderNo = `PO-${Date.now()}`;
@@ -149,56 +176,18 @@ export async function deleteOrder(orderId: string) {
 }
 
 export async function recalculateAllOrders() {
-  const pendingOrders = await prisma.order.findMany({
-    where: { status: { in: ["SHORTAGE", "NO_BOM"] } },
-    include: {
-      product: {
-        include: { bomItems: true },
-      },
-    },
+  const allOrders = await prisma.order.findMany({
+    select: { id: true, productId: true, status: true, shortageInfo: true },
   });
 
-  if (pendingOrders.length === 0) return { updated: 0, total: 0 };
+  if (allOrders.length === 0) return { updated: 0, total: 0 };
 
-  const inventories = await prisma.jigBaseInventory.findMany({
-    where: { category: "JIG" },
-  });
-  const invMap = new Map(inventories.map((i) => [i.modelCode, i.quantity]));
-
+  const invMap = await loadJigInventoryMap();
   let updated = 0;
 
-  for (const order of pendingOrders) {
-    const jigItems = order.product.bomItems.filter((b) => b.jigModel);
-
-    if (jigItems.length === 0) {
-      if (order.status !== "NO_BOM") {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { status: "NO_BOM", shortageInfo: null },
-        });
-        updated++;
-      }
-      continue;
-    }
-
-    const shortages: string[] = [];
-
-    for (const item of jigItems) {
-      const stock = invMap.get(item.jigModel!) ?? -1;
-
-      if (stock < 0) {
-        shortages.push(
-          `${item.jigModel} — 总仓无此型号 (连接器: ${item.connectorModel})`
-        );
-      } else if (stock < item.quantity) {
-        shortages.push(
-          `${item.jigModel} — 需${item.quantity}，库存${stock} (连接器: ${item.connectorModel})`
-        );
-      }
-    }
-
-    const newStatus = shortages.length > 0 ? "SHORTAGE" : "READY";
-    const newInfo = shortages.length > 0 ? shortages.join("; ") : null;
+  for (const order of allOrders) {
+    const { status: newStatus, shortageInfo: newInfo } =
+      await evaluateOrderFulfillment(order.productId, invMap);
 
     if (order.status !== newStatus || order.shortageInfo !== newInfo) {
       await prisma.order.update({
@@ -210,5 +199,6 @@ export async function recalculateAllOrders() {
   }
 
   revalidatePath("/orders");
-  return { updated, total: pendingOrders.length };
+  revalidatePath("/dashboard");
+  return { updated, total: allOrders.length };
 }

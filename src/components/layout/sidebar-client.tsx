@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -36,6 +36,10 @@ const roleLabelMap: Record<string, string> = {
   ENGINEER: "工程师",
 };
 
+function noopSubscribe() {
+  return () => {};
+}
+
 export default function SidebarClient({
   session,
   systemName,
@@ -44,13 +48,13 @@ export default function SidebarClient({
   systemName: string;
 }) {
   const pathname = usePathname();
-  const [isMounted, setIsMounted] = useState(false);
+  const isMounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  );
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  let navItems = [...baseNavItems];
+  const navItems = [...baseNavItems];
 
   if (session?.role === "ADMIN") {
     navItems.splice(6, 0, { href: "/users", label: "账号权限管理", icon: Users });

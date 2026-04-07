@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { AUTH_SESSION_COOKIE_NAME } from "@/lib/auth-constants";
 
-export function middleware(request: NextRequest) {
+/** 与 @/lib/auth-constants 保持一致，避免 proxy 边界对深层模块的依赖 */
+const AUTH_SESSION_COOKIE_NAME = "auth_session";
+
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (

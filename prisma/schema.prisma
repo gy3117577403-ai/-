@@ -1,5 +1,6 @@
 // Prisma Schema — 治具管理系统
 // 数据库：PostgreSQL
+// DateTime 字段由 PostgreSQL timestamp 存储，与 Prisma @default(now()) / @updatedAt 兼容
 
 generator client {
   provider = "prisma-client-js"
