@@ -1,9 +1,8 @@
-# 推送到 main/master 后构建镜像并推送至阿里云 ACR（或其它 Registry）
+# 推送到 main/master 后构建镜像并推送至 Docker Hub（官方 registry，无需配置 registry URL）
 # 需在仓库 Settings → Secrets 中配置：
-#   REGISTRY_URL      例如 registry.cn-hangzhou.aliyuncs.com
-#   REGISTRY_USERNAME  ACR 用户名
-#   REGISTRY_PASSWORD  ACR 密码或临时令牌
-#   IMAGE_NAME         完整镜像名（不含标签），例如 namespace/uss-ai
+#   REGISTRY_USERNAME  Docker Hub 用户名
+#   REGISTRY_PASSWORD  Docker Hub Access Token 或密码
+#   IMAGE_NAME         镜像全名（Docker Hub 格式），例如 youruser/uss-ai
 # 可选：
 #   SEALOS_WEBHOOK_URL  Sealos 应用更新 Webhook，推送成功后 POST 触发拉取新镜像
 
@@ -14,9 +13,6 @@ on:
     branches:
       - main
       - master
-
-env:
-  IMAGE_TAG: latest
 
 jobs:
   docker-build-push:
@@ -32,10 +28,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REGISTRY_URL }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
@@ -44,7 +39,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.REGISTRY_URL }}/${{ secrets.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          tags: ${{ secrets.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
