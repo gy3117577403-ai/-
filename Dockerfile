@@ -46,5 +46,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# 启动前同步数据库结构，再启动 Next.js standalone
-CMD ["sh", "-c", "npx prisma migrate deploy && exec node server.js"]
+# 启动前同步数据库结构（不用 npx：runner 未复制 .bin，npx 会退化为执行 prisma 导致 sh: prisma not found）
+CMD ["sh", "-c", "node ./node_modules/prisma/build/index.js migrate deploy && exec node server.js"]
