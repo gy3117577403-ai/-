@@ -1,8 +1,7 @@
-# 推送到 main/master 后构建镜像并推送至 Docker Hub（官方 registry，无需配置 registry URL）
+# 推送到 main/master 后构建镜像并推送至阿里云 ACR（个人版实例）
 # 需在仓库 Settings → Secrets 中配置：
-#   REGISTRY_USERNAME  Docker Hub 用户名
-#   REGISTRY_PASSWORD  Docker Hub Access Token 或密码
-#   IMAGE_NAME         镜像全名（Docker Hub 格式），例如 youruser/uss-ai
+#   ALIYUN_USERNAME  ACR 登录用户名
+#   ALIYUN_PASSWORD  ACR 登录密码或临时令牌
 # 可选：
 #   SEALOS_WEBHOOK_URL  Sealos 应用更新 Webhook，推送成功后 POST 触发拉取新镜像
 
@@ -28,18 +27,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to Alibaba Cloud ACR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          registry: crpi-2acb2dabuutklbx4.cn-hangzhou.personal.cr.aliyuncs.com
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ secrets.IMAGE_NAME }}:latest
+          tags: crpi-2acb2dabuutklbx4.cn-hangzhou.personal.cr.aliyuncs.com/zhiju-b/uss-app:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
