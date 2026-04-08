@@ -4,6 +4,7 @@ import {
   getProductWithCustomer,
   getAvailableJigModels,
 } from "@/lib/actions/bom";
+import { getSession } from "@/lib/auth";
 import { BomClient } from "./bom-client";
 
 export default async function BomPage({
@@ -13,19 +14,23 @@ export default async function BomPage({
 }) {
   const { productId } = await params;
 
-  const [product, bomItems, jigModels] = await Promise.all([
+  const [product, bomItems, jigModels, session] = await Promise.all([
     getProductWithCustomer(productId),
     getBomItems(productId),
     getAvailableJigModels(),
+    getSession(),
   ]);
 
   if (!product) notFound();
+
+  const isAdmin = session?.role === "ADMIN";
 
   return (
     <BomClient
       product={product}
       bomItems={bomItems}
       jigModels={jigModels}
+      isAdmin={isAdmin}
     />
   );
 }

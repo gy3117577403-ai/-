@@ -28,6 +28,7 @@ function fuzzyMatchJig(
   return null;
 }
 
+/** 智能 BOM 导入（幂等覆写：同规格产品会整表替换连接器明细） */
 export async function processSmartBomImport(payload: SmartBomPayload) {
   const { customerName, productCode, connectors } = payload;
 
@@ -38,32 +39,37 @@ export async function processSmartBomImport(payload: SmartBomPayload) {
   const name = customerName.trim();
   const code = productCode.trim();
 
-  let productId: string;
-
-  await prisma.$transaction(async (tx) => {
+  const productId = await prisma.$transaction(async (tx) => {
     const customer = await tx.customer.upsert({
       where: { code: name },
       update: { name },
       create: { code: name, name },
     });
 
+    const bomCreate = connectors.map((c) => ({
+      connectorModel: c.model,
+      quantity: c.quantity,
+    }));
+
     const product = await tx.product.upsert({
       where: { code },
-      update: { name: code, customerId: customer.id },
-      create: { code, name: code, customerId: customer.id },
+      create: {
+        code,
+        name: code,
+        customerId: customer.id,
+        bomItems: { create: bomCreate },
+      },
+      update: {
+        name: code,
+        customerId: customer.id,
+        bomItems: {
+          deleteMany: {},
+          create: bomCreate,
+        },
+      },
     });
 
-    productId = product.id;
-
-    await tx.bomItem.deleteMany({ where: { productId: product.id } });
-
-    await tx.bomItem.createMany({
-      data: connectors.map((c) => ({
-        productId: product.id,
-        connectorModel: c.model,
-        quantity: c.quantity,
-      })),
-    });
+    return product.id;
   });
 
   const inventories = await prisma.jigBaseInventory.findMany({
@@ -71,7 +77,7 @@ export async function processSmartBomImport(payload: SmartBomPayload) {
   });
 
   const newBomItems = await prisma.bomItem.findMany({
-    where: { productId: productId! },
+    where: { productId },
   });
 
   let matchCount = 0;
@@ -89,6 +95,10 @@ export async function processSmartBomImport(payload: SmartBomPayload) {
 
   revalidatePath("/customers");
   revalidatePath("/products");
+  revalidatePath(`/products/${productId}/bom`);
 
   return { total: connectors.length, matched: matchCount };
 }
+
+/** @alias 与 `processSmartBomImport` 相同，便于语义化引用 */
+export const importBOMData = processSmartBomImport;

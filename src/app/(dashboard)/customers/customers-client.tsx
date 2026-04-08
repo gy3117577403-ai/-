@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { Customer, Product } from "@prisma/client";
+import { useRouter } from "next/navigation";
 import { SmartImportButton } from "@/components/bom/smart-import-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableHeader,
   TableBody,
@@ -23,9 +34,17 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table";
-import { Plus, Building2, Package, ChevronRight, ExternalLink } from "lucide-react";
+import {
+  Plus,
+  Building2,
+  Package,
+  ChevronRight,
+  ExternalLink,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import { createCustomer } from "@/lib/actions/customer";
+import { deleteCustomer, deleteProduct } from "@/lib/actions/deleteActions";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -33,12 +52,25 @@ type CustomerWithProducts = Customer & {
   products: (Product & { _count: { bomItems: number } })[];
 };
 
-export function CustomersClient({ data }: { data: CustomerWithProducts[] }) {
+type DeleteTarget =
+  | { type: "customer"; id: string; label: string }
+  | { type: "product"; id: string; label: string };
+
+export function CustomersClient({
+  data,
+  isAdmin,
+}: {
+  data: CustomerWithProducts[];
+  isAdmin: boolean;
+}) {
+  const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [deletePending, startDeleteTransition] = useTransition();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
   function toggleExpand(id: string) {
     setExpanded((prev) => {
@@ -63,6 +95,24 @@ export function CustomersClient({ data }: { data: CustomerWithProducts[] }) {
         setName("");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "创建失败");
+      }
+    });
+  }
+
+  function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    startDeleteTransition(async () => {
+      try {
+        if (deleteTarget.type === "customer") {
+          await deleteCustomer(deleteTarget.id);
+        } else {
+          await deleteProduct(deleteTarget.id);
+        }
+        toast.success("删除成功");
+        setDeleteTarget(null);
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "删除失败");
       }
     });
   }
@@ -108,32 +158,55 @@ export function CustomersClient({ data }: { data: CustomerWithProducts[] }) {
               className="rounded-lg border bg-white shadow-sm"
             >
               {/* 客户行 */}
-              <button
-                type="button"
-                onClick={() => toggleExpand(customer.id)}
-                className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50"
-              >
-                <ChevronRight
-                  className={`h-4 w-4 text-slate-400 transition-transform ${
-                    expanded.has(customer.id) ? "rotate-90" : ""
-                  }`}
-                />
-                <Building2 className="h-4 w-4 text-slate-500" />
-                <div className="flex-1">
-                  <span className="font-medium text-slate-800">
-                    {customer.name}
+              <div className="flex items-stretch">
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(customer.id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50"
+                >
+                  <ChevronRight
+                    className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                      expanded.has(customer.id) ? "rotate-90" : ""
+                    }`}
+                  />
+                  <Building2 className="h-4 w-4 shrink-0 text-slate-500" />
+                  <div className="min-w-0 flex-1">
+                    <span className="font-medium text-slate-800">
+                      {customer.name}
+                    </span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      {customer.code}
+                    </span>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0 text-xs">
+                    {customer.products.length} 款产品
+                  </Badge>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {format(new Date(customer.createdAt), "yyyy-MM-dd")}
                   </span>
-                  <span className="ml-2 text-xs text-slate-400">
-                    {customer.code}
-                  </span>
-                </div>
-                <Badge variant="secondary" className="text-xs">
-                  {customer.products.length} 款产品
-                </Badge>
-                <span className="text-xs text-slate-400">
-                  {format(new Date(customer.createdAt), "yyyy-MM-dd")}
-                </span>
-              </button>
+                </button>
+                {isAdmin && (
+                  <div className="flex items-center border-l border-slate-100 pr-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                      title="删除客户"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget({
+                          type: "customer",
+                          id: customer.id,
+                          label: customer.name,
+                        });
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
 
               {/* 产品展开区 */}
               {expanded.has(customer.id) && customer.products.length > 0 && (
@@ -144,7 +217,7 @@ export function CustomersClient({ data }: { data: CustomerWithProducts[] }) {
                         <TableHead>产品规格</TableHead>
                         <TableHead>BOM 条目数</TableHead>
                         <TableHead>创建时间</TableHead>
-                        <TableHead>操作</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -169,14 +242,34 @@ export function CustomersClient({ data }: { data: CustomerWithProducts[] }) {
                               "yyyy-MM-dd HH:mm"
                             )}
                           </TableCell>
-                          <TableCell>
-                            <Link
-                              href={`/products/${product.id}/bom`}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
-                            >
-                              维护 BOM
-                              <ExternalLink className="h-3 w-3" />
-                            </Link>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Link
+                                href={`/products/${product.id}/bom`}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                              >
+                                维护 BOM
+                                <ExternalLink className="h-3 w-3" />
+                              </Link>
+                              {isAdmin && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                  title="删除产品"
+                                  onClick={() =>
+                                    setDeleteTarget({
+                                      type: "product",
+                                      id: product.id,
+                                      label: product.code,
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -236,6 +329,40 @@ export function CustomersClient({ data }: { data: CustomerWithProducts[] }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确定要删除吗？此操作不可逆</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === "customer"
+                ? `将删除客户「${deleteTarget.label}」及其下全部产品与 BOM 明细。请确认无业务依赖后再操作。`
+                : deleteTarget?.type === "product"
+                  ? `将删除产品「${deleteTarget.label}」及其全部 BOM 连接器明细。`
+                  : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={deletePending}
+              onClick={() => setDeleteTarget(null)}
+            >
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletePending}
+              onClick={handleConfirmDelete}
+            >
+              {deletePending ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { BomItem, Product, Customer } from "@prisma/client";
 import {
   Table,
@@ -20,18 +21,41 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plug, Link2, Sparkles } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ArrowLeft, Plug, Link2, Sparkles, Trash2 } from "lucide-react";
 import { updateBomItemJig, autoMatchBomJigs } from "@/lib/actions/bom";
+import { deleteConnector } from "@/lib/actions/deleteActions";
 import { toast } from "sonner";
 
 interface BomClientProps {
   product: Product & { customer: Customer };
   bomItems: BomItem[];
   jigModels: string[];
+  isAdmin: boolean;
 }
 
-export function BomClient({ product, bomItems, jigModels }: BomClientProps) {
+export function BomClient({
+  product,
+  bomItems,
+  jigModels,
+  isAdmin,
+}: BomClientProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [deletePending, startDeleteTransition] = useTransition();
+  const [connectorToDelete, setConnectorToDelete] = useState<{
+    id: string;
+    model: string;
+  } | null>(null);
 
   function handleJigChange(bomItemId: string, value: string | null) {
     const v = value ?? "__none__";
@@ -64,6 +88,20 @@ export function BomClient({ product, bomItems, jigModels }: BomClientProps) {
   }
 
   const unmatchedCount = bomItems.filter((b) => !b.jigModel).length;
+
+  function handleConfirmDeleteConnector() {
+    if (!connectorToDelete) return;
+    startDeleteTransition(async () => {
+      try {
+        await deleteConnector(connectorToDelete.id);
+        toast.success("已删除连接器明细");
+        setConnectorToDelete(null);
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "删除失败");
+      }
+    });
+  }
 
   return (
     <div>
@@ -116,6 +154,9 @@ export function BomClient({ product, bomItems, jigModels }: BomClientProps) {
                 <TableHead>连接器型号</TableHead>
                 <TableHead className="w-24">数量</TableHead>
                 <TableHead>匹配治具</TableHead>
+                {isAdmin && (
+                  <TableHead className="w-20 text-right">操作</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -162,12 +203,64 @@ export function BomClient({ product, bomItems, jigModels }: BomClientProps) {
                       </Select>
                     </div>
                   </TableCell>
+                  {isAdmin && (
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                        title="删除此连接器行"
+                        disabled={isPending || deletePending}
+                        onClick={() =>
+                          setConnectorToDelete({
+                            id: item.id,
+                            model: item.connectorModel,
+                          })
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
+
+      <AlertDialog
+        open={!!connectorToDelete}
+        onOpenChange={(open) => {
+          if (!open) setConnectorToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确定要删除吗？此操作不可逆</AlertDialogTitle>
+            <AlertDialogDescription>
+              {connectorToDelete
+                ? `将永久删除连接器「${connectorToDelete.model}」在本 BOM 中的记录。`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={deletePending}
+              onClick={() => setConnectorToDelete(null)}
+            >
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletePending}
+              onClick={handleConfirmDeleteConnector}
+            >
+              {deletePending ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <p className="mt-4 text-xs text-slate-400">
         共 {bomItems.length} 项连接器 · 已匹配{" "}

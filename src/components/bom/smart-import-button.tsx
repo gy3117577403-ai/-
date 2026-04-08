@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -108,6 +109,7 @@ function extractConnectors(
 }
 
 export function SmartImportButton() {
+  const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -172,6 +174,7 @@ export function SmartImportButton() {
                 `导入成功：${result.total} 款连接器已写入「${productCode}」`
               );
             }
+            router.refresh();
           } catch (err) {
             toast.error(
               err instanceof Error ? err.message : "写入数据库失败"
