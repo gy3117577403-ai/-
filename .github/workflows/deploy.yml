@@ -4,6 +4,7 @@
 #   ALIYUN_PASSWORD  ACR 登录密码或临时令牌
 # 可选：
 #   SEALOS_WEBHOOK_URL  Sealos 应用更新 Webhook，推送成功后 POST 触发拉取新镜像
+# redeploy-stamp: init（运行 ./redeploy.sh 可更新本行以强制触发 Actions）
 
 name: Build and Push Docker Image
 
