@@ -34,11 +34,17 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Prisma 引擎与生成产物（standalone 未自动包含时的兜底）
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+# Prisma CLI：容器启动时执行 migrate deploy 所需（prisma.config 会加载 dotenv）
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/dotenv ./node_modules/dotenv
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+# prisma.config.ts 供 CLI 解析 migrations 路径与 datasource（需 DATABASE_URL）
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
 
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+# 启动前同步数据库结构，再启动 Next.js standalone
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node server.js"]
