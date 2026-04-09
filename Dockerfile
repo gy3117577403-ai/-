@@ -36,6 +36,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modul
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 # Prisma CLI：容器启动时执行 migrate deploy 所需（prisma.config 会加载 dotenv）
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+# @prisma/config → effect 在 builder 中常提升到顶层，必须一并复制否则 migrate 报 Cannot find module 'effect'
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/effect ./node_modules/effect
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/dotenv ./node_modules/dotenv
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 # prisma.config.ts 供 CLI 解析 migrations 路径与 datasource（需 DATABASE_URL）
