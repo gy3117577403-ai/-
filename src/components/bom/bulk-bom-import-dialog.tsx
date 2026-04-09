@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import type { Customer } from "@prisma/client";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
@@ -57,6 +57,10 @@ export function BulkBomImportDialog({
   const [filterByMainSpec, setFilterByMainSpec] = useState(true);
   const [isPending, startTransition] = useTransition();
 
+  useEffect(() => {
+    if (fixedProduct?.id) setProductId(fixedProduct.id);
+  }, [fixedProduct?.id]);
+
   const productOptions = useMemo<ProductOption[]>(() => {
     const list: ProductOption[] = [];
     for (const c of customers) {
@@ -79,7 +83,8 @@ export function BulkBomImportDialog({
     : productOptions.find((p) => p.id === productId);
 
   function parseFile(file: File) {
-    if (!effectiveProductId) {
+    const pid = String(fixedProduct?.id ?? productId ?? "").trim();
+    if (!pid) {
       toast.error("请先选择要写入 BOM 的产品");
       return;
     }
@@ -121,10 +126,10 @@ export function BulkBomImportDialog({
 
         startTransition(async () => {
           try {
-            const result = await importBomWhitelistForProduct(
-              effectiveProductId,
-              items
-            );
+            const result = await importBomWhitelistForProduct({
+              productId: pid,
+              rows: items,
+            });
             toast.success(
               result.matched > 0
                 ? `已导入 ${result.total} 条，自动匹配治具 ${result.matched} 项`

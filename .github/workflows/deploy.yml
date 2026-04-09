@@ -40,7 +40,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: "crpi-2acb2dabuutklbx4.cn-hangzhou.personal.cr.aliyuncs.com/zhiju-b/uss-app:v5"
+          tags: "crpi-2acb2dabuutklbx4.cn-hangzhou.personal.cr.aliyuncs.com/zhiju-b/uss-app:v8"
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

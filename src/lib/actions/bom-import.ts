@@ -146,21 +146,32 @@ export const importBOMData = processSmartBomImport;
 
 const CREATE_MANY_CHUNK = 500;
 
+export type ImportBomWhitelistInput = {
+  productId: string;
+  rows: ParsedBomWhitelistRow[];
+};
+
 /**
- * 表三白名单导入：必须传入 productId；先清空该产品 BOM 再批量写入（幂等覆写）。
+ * 表三白名单导入：单对象入参避免 Server Action 多参数序列化丢字段；
+ * createMany 前对每一行显式注入数据库校验后的 productId。
  */
 export async function importBomWhitelistForProduct(
-  productId: string,
-  rows: ParsedBomWhitelistRow[]
+  input: ImportBomWhitelistInput
 ) {
-  if (!productId?.trim()) throw new Error("请选择产品");
-  if (!rows?.length) throw new Error("没有可导入的 BOM 行");
+  const rawId = String(input?.productId ?? "").trim();
+  if (!rawId) throw new Error("请选择产品");
+
+  const rows = Array.isArray(input?.rows) ? input.rows : [];
+  if (!rows.length) throw new Error("没有可导入的 BOM 行");
 
   const product = await prisma.product.findUnique({
-    where: { id: productId },
+    where: { id: rawId },
     select: { id: true, code: true },
   });
   if (!product) throw new Error("产品不存在");
+
+  /** 一律使用库中 id，避免入参与库不一致；后续写入必须带此字段 */
+  const targetProductId = product.id;
 
   const prepared = rows
     .map((r) => {
@@ -168,7 +179,6 @@ export async function importBomWhitelistForProduct(
       const quantity = parseBomQuantityStrict(r.quantity);
       if (!connectorModel || quantity === null) return null;
       return {
-        productId,
         partNumber: trimOrNull(r.partNumber),
         designator: trimOrNull(r.designator),
         quantity,
@@ -184,11 +194,20 @@ export async function importBomWhitelistForProduct(
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.bomItem.deleteMany({ where: { productId } });
+  const dataToInsert = prepared.map((row) => ({
+    productId: targetProductId,
+    partNumber: row.partNumber,
+    designator: row.designator,
+    quantity: row.quantity,
+    description: row.description,
+    connectorModel: row.connectorModel,
+  }));
 
-    for (let i = 0; i < prepared.length; i += CREATE_MANY_CHUNK) {
-      const chunk = prepared.slice(i, i + CREATE_MANY_CHUNK);
+  await prisma.$transaction(async (tx) => {
+    await tx.bomItem.deleteMany({ where: { productId: targetProductId } });
+
+    for (let i = 0; i < dataToInsert.length; i += CREATE_MANY_CHUNK) {
+      const chunk = dataToInsert.slice(i, i + CREATE_MANY_CHUNK);
       await tx.bomItem.createMany({ data: chunk });
     }
   });
@@ -198,7 +217,7 @@ export async function importBomWhitelistForProduct(
   });
 
   const newBomItems = await prisma.bomItem.findMany({
-    where: { productId },
+    where: { productId: targetProductId },
   });
 
   let matchCount = 0;
@@ -215,10 +234,10 @@ export async function importBomWhitelistForProduct(
 
   revalidatePath("/customers");
   revalidatePath("/products");
-  revalidatePath(`/products/${productId}/bom`);
+  revalidatePath(`/products/${targetProductId}/bom`);
 
   return {
-    total: prepared.length,
+    total: dataToInsert.length,
     matched: matchCount,
     productCode: product.code,
   };
