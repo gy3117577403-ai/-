@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { Customer, Product } from "@prisma/client";
 import { useRouter } from "next/navigation";
 import { SmartImportButton } from "@/components/bom/smart-import-button";
+import { BulkBomImportDialog } from "@/components/bom/bulk-bom-import-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,6 +129,7 @@ export function CustomersClient({
         </div>
         <div className="flex items-center gap-2">
           <SmartImportButton />
+          <BulkBomImportDialog customers={data} />
           <Button
             onClick={() => {
               setCode("");

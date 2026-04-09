@@ -32,6 +32,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Plug, Link2, Sparkles, Trash2 } from "lucide-react";
+import { BulkBomImportDialog } from "@/components/bom/bulk-bom-import-dialog";
 import { updateBomItemJig, autoMatchBomJigs } from "@/lib/actions/bom";
 import { deleteConnector } from "@/lib/actions/deleteActions";
 import { toast } from "sonner";
@@ -123,16 +124,21 @@ export function BomClient({
               <Badge variant="secondary">{product.code}</Badge>
             </div>
           </div>
-          {bomItems.length > 0 && unmatchedCount > 0 && (
-            <Button
-              variant="outline"
-              onClick={handleAutoMatch}
-              disabled={isPending}
-            >
-              <Sparkles className="mr-1.5 h-4 w-4" />
-              {isPending ? "匹配中…" : "一键智能匹配"}
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <BulkBomImportDialog
+              fixedProduct={{ id: product.id, code: product.code }}
+            />
+            {bomItems.length > 0 && unmatchedCount > 0 && (
+              <Button
+                variant="outline"
+                onClick={handleAutoMatch}
+                disabled={isPending}
+              >
+                <Sparkles className="mr-1.5 h-4 w-4" />
+                {isPending ? "匹配中…" : "一键智能匹配"}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -141,7 +147,7 @@ export function BomClient({
           <div className="text-center">
             <Plug className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-2 text-sm text-slate-400">
-              该产品暂无连接器数据，请通过智能导入 BOM 添加
+              暂无 BOM，可使用上方「表三 BOM 白名单导入」或客户页的「智能导入 BOM」
             </p>
           </div>
         </div>
@@ -151,7 +157,10 @@ export function BomClient({
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">#</TableHead>
+                <TableHead className="min-w-[100px]">物料编码</TableHead>
+                <TableHead className="min-w-[80px]">位号</TableHead>
                 <TableHead>连接器型号</TableHead>
+                <TableHead className="max-w-[200px]">描述</TableHead>
                 <TableHead className="w-24">数量</TableHead>
                 <TableHead>匹配治具</TableHead>
                 {isAdmin && (
@@ -164,12 +173,23 @@ export function BomClient({
                 <TableRow key={item.id}>
                   <TableCell className="text-slate-400">{idx + 1}</TableCell>
                   <TableCell>
+                    <span className="font-mono text-xs text-slate-700">
+                      {item.partNumber ?? "—"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-600">
+                    {item.designator ?? "—"}
+                  </TableCell>
+                  <TableCell>
                     <div className="flex items-center gap-2">
                       <Plug className="h-3.5 w-3.5 text-slate-400" />
                       <span className="font-mono text-sm font-medium text-slate-800">
                         {item.connectorModel}
                       </span>
                     </div>
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate text-xs text-slate-500" title={item.description ?? undefined}>
+                    {item.description ?? "—"}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="tabular-nums">

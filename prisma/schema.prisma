@@ -81,12 +81,15 @@ model Order {
   @@index([createdAt])
 }
 
-/// BOM 明细
+/// BOM 明细（表三白名单字段 + 连接器规格用于治具匹配）
 model BomItem {
   id             String   @id @default(cuid())
   productId      String                    // 所属产品 ID
-  connectorModel String                    // 连接器型号
-  quantity       Int                       // 数量
+  partNumber     String?                   // 物料编号 / 物料编码
+  designator     String?                   // 位号
+  quantity       Int                       // 用量
+  description    String?                   // 描述
+  connectorModel String                    // 连接器/子件规格（治具匹配主键）
   jigModel       String?                   // 匹配的治具型号（软关联至总仓 modelCode）
   createdAt      DateTime @default(now())
 
