@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# 生产镜像：Node 20 Alpine + 中国时区 + Next.js standalone
+# 生产镜像：Node 20 Alpine + 中国时区 + Next.js standalone + 完整 node_modules（保底 Prisma CLI / effect 等依赖树）
 
 FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat openssl
@@ -29,16 +29,14 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
-# 必须在 runner 且紧接 standalone 之后安装，才能把 Prisma CLI 及 effect 等完整依赖写入最终镜像（standalone 不会带上这些）
-RUN npm install prisma && chown -R nextjs:nodejs /app
+# 暴力完整复制 builder 依赖树，覆盖 standalone 自带的残缺 node_modules，终结 effect/fast-check 等缺失
+COPY --from=builder /app/node_modules ./node_modules
 
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
-# 运行时 Prisma Client 引擎与生成产物
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
+RUN chown -R nextjs:nodejs /app
 
 USER nextjs
 EXPOSE 3000
