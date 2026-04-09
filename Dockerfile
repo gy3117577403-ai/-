@@ -31,22 +31,19 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Prisma 引擎与生成产物（standalone 未自动包含时的兜底）
+# 运行时 Prisma Client 引擎与生成产物（standalone 可能未完整 trace）
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-# Prisma CLI：容器启动时执行 migrate deploy 所需（prisma.config 会加载 dotenv）
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
-# @prisma/config → effect 在 builder 中常提升到顶层，必须一并复制否则 migrate 报 Cannot find module 'effect'
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/effect ./node_modules/effect
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/dotenv ./node_modules/dotenv
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-# prisma.config.ts 供 CLI 解析 migrations 路径与 datasource（需 DATABASE_URL）
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
+
+# 完整安装 Prisma CLI 及全部传递依赖（effect、fast-check 等），避免 standalone 打地鼠式 COPY
+# 与 package.json 中 prisma 版本对齐；--omit=dev 保持生产体积
+RUN npm install prisma@6.19.3 --omit=dev && chown -R nextjs:nodejs /app
 
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# 启动前同步数据库结构（不用 npx：runner 未复制 .bin，npx 会退化为执行 prisma 导致 sh: prisma not found）
-CMD ["sh", "-c", "node ./node_modules/prisma/build/index.js migrate deploy && exec node server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node server.js"]
