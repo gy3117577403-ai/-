@@ -28,22 +28,21 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder /app/.next/standalone ./
+# 必须在 runner 且紧接 standalone 之后安装，才能把 Prisma CLI 及 effect 等完整依赖写入最终镜像（standalone 不会带上这些）
+RUN npm install prisma && chown -R nextjs:nodejs /app
+
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# 运行时 Prisma Client 引擎与生成产物（standalone 可能未完整 trace）
+# 运行时 Prisma Client 引擎与生成产物
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
-
-# 完整安装 Prisma CLI 及全部传递依赖（effect、fast-check 等），避免 standalone 打地鼠式 COPY
-# 与 package.json 中 prisma 版本对齐；--omit=dev 保持生产体积
-RUN npm install prisma@6.19.3 --omit=dev && chown -R nextjs:nodejs /app
 
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["sh", "-c", "npx prisma migrate deploy && exec node server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
