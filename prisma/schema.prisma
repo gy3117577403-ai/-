@@ -15,10 +15,10 @@ datasource db {
 
 /// 用户角色
 enum Role {
-  ADMIN      // 系统管理员
-  BOSS       // 领导审批
-  PURCHASER  // 采购执行
-  ENGINEER   // 工程师（默认）
+  ADMIN // 系统管理员
+  BOSS // 领导审批
+  PURCHASER // 采购执行
+  ENGINEER // 工程师（默认）
 }
 
 // ==================== 模型 ====================
@@ -26,56 +26,56 @@ enum Role {
 /// 系统用户
 model User {
   id        String   @id @default(cuid())
-  username  String   @unique           // 登录账号，唯一
-  password  String   @default("")      // 明文密码（内网 MVP）；迁移期默认空，请用种子或后台重置
+  username  String   @unique // 登录账号，唯一
+  password  String   @default("") // 明文密码（内网 MVP）；迁移期默认空，请用种子或后台重置
   name      String   @default("未命名") // 真实姓名
   role      Role     @default(ENGINEER) // 默认工程师
-  createdAt DateTime @default(now())    // 创建时间
-  updatedAt DateTime @updatedAt         // 最后更新时间
+  createdAt DateTime @default(now()) // 创建时间
+  updatedAt DateTime @updatedAt // 最后更新时间
 
   auditLogs AuditLog[] // 该用户产生的操作记录
 }
 
 /// 客户
 model Customer {
-  id        String    @id @default(cuid())
-  code      String    @unique // 客户编码，唯一
-  name      String            // 客户名称
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  code      String   @unique // 客户编码，唯一
+  name      String // 客户名称
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   products Product[] // 该客户的产品列表
 }
 
 /// 产品
 model Product {
-  id         String    @id @default(cuid())
-  code       String    @unique // 产品编码，唯一
-  name       String            // 产品名称
-  customerId String            // 所属客户 ID
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id         String   @id @default(cuid())
+  code       String   @unique // 产品编码，唯一
+  name       String // 产品名称
+  customerId String // 所属客户 ID
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  customer   Customer  @relation(fields: [customerId], references: [id])
-  bomItems   BomItem[] // 该产品的 BOM 明细列表
-  orders     Order[]   // 该产品的生产开工记录
+  customer Customer  @relation(fields: [customerId], references: [id])
+  bomItems BomItem[] // 该产品的 BOM 明细列表
+  orders   Order[] // 该产品的生产开工记录
 
   @@index([customerId])
 }
 
 /// 生产开工记录
 model Order {
-  id            String   @id @default(cuid())
-  orderNo       String   @unique            // 系统自动生成的工单号
-  productId     String                      // 关联产品 ID
-  plannedQty    Int                         // 计划生产数量
-  operator      String                      // 操作员
-  status        String   @default("READY")  // READY / SHORTAGE / NO_BOM
-  shortageInfo  String?                     // 缺料详情文本
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  orderNo      String   @unique // 系统自动生成的工单号
+  productId    String // 关联产品 ID
+  plannedQty   Int // 计划生产数量
+  operator     String // 操作员
+  status       String   @default("READY") // READY / SHORTAGE / NO_BOM
+  shortageInfo String? // 缺料详情文本
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  product       Product  @relation(fields: [productId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@index([productId])
   @@index([createdAt])
@@ -84,16 +84,15 @@ model Order {
 /// BOM 明细（表三白名单字段 + 连接器规格用于治具匹配）
 model BomItem {
   id             String   @id @default(cuid())
-  productId      String                    // 所属产品 ID
-  partNumber     String?                   // 物料编号 / 物料编码
-  designator     String?                   // 位号
-  quantity       Int                       // 用量
-  description    String?                   // 描述
-  connectorModel String                    // 连接器/子件规格（治具匹配主键）
-  jigModel       String?                   // 匹配的治具型号（软关联至总仓 modelCode）
-  createdAt      DateTime @default(now())
-
+  productId      String // 所属产品 ID
   product        Product  @relation(fields: [productId], references: [id])
+  partNumber     String? // 物料编号 / 物料编码
+  designator     String? // 位号
+  quantity       Int // 用量
+  description    String? // 描述
+  connectorModel String // 连接器/子件规格（治具匹配主键）
+  jigModel       String? // 匹配的治具型号（软关联至总仓 modelCode）
+  createdAt      DateTime @default(now())
 
   @@index([productId])
 }
@@ -101,14 +100,14 @@ model BomItem {
 /// 审计日志（操作记录）
 model AuditLog {
   id        String   @id @default(cuid())
-  action    String                      // 操作类型
-  userId    String                      // 操作者 ID
-  target    String                      // 操作对象描述
-  oldValue  Json?                       // 变更前的值（可为空）
-  newValue  Json?                       // 变更后的值（可为空）
-  createdAt DateTime @default(now())    // 记录时间
+  action    String // 操作类型
+  userId    String // 操作者 ID
+  target    String // 操作对象描述
+  oldValue  Json? // 变更前的值（可为空）
+  newValue  Json? // 变更后的值（可为空）
+  createdAt DateTime @default(now()) // 记录时间
 
-  user      User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([createdAt])
@@ -128,31 +127,31 @@ model OperationLog {
 
 /// 物资分类
 enum ItemCategory {
-  JIG    // 生产治具
-  OTHER  // 其他工具/设备
+  JIG // 生产治具
+  OTHER // 其他工具/设备
 }
 
 /// 采购申请状态
 enum PurchaseStatus {
-  PENDING   // 待审批
-  APPROVED  // 已批准
-  REJECTED  // 已驳回
-  ORDERED   // 已采购
-  RECEIVED  // 已入库
+  PENDING // 待审批
+  APPROVED // 已批准
+  REJECTED // 已驳回
+  ORDERED // 已采购
+  RECEIVED // 已入库
 }
 
 /// 物品采购申请
 model PurchaseRequest {
   id            String         @id @default(cuid())
-  requestNo     String         @unique          // 请购单号
-  applicant     String                          // 申请人
-  itemName      String                          // 物资型号
-  quantity      Int                             // 数量
-  link          String?                         // 购买链接
-  estimatedCost Float                           // 预估总金额
-  category      ItemCategory   @default(JIG)     // 物资分类
+  requestNo     String         @unique // 请购单号
+  applicant     String // 申请人
+  itemName      String // 物资型号
+  quantity      Int // 数量
+  link          String? // 购买链接
+  estimatedCost Float // 预估总金额
+  category      ItemCategory   @default(JIG) // 物资分类
   status        PurchaseStatus @default(PENDING)
-  remark        String?                         // 驳回理由或备注
+  remark        String? // 驳回理由或备注
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -164,10 +163,10 @@ model PurchaseRequest {
 model JigBaseInventory {
   id          String       @id @default(cuid())
   modelCode   String       @unique // 物资型号，唯一累加基准
-  matingModel String?              // 对插型号（仅治具有）
+  matingModel String? // 对插型号（仅治具有）
   quantity    Int          @default(0) // 数量
   category    ItemCategory @default(JIG) // 物资分类
-  remarks     String?              // 备注
+  remarks     String? // 备注
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
