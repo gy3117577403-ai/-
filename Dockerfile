@@ -43,4 +43,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+# 已有库无 migration 历史时用 db push 绕过 P3005；非交互需 --accept-data-loss（生产请评估数据风险）
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node server.js"]
