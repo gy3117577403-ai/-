@@ -129,7 +129,7 @@ export function CustomersClient({
         </div>
         <div className="flex items-center gap-2">
           <SmartImportButton />
-          <BulkBomImportDialog customers={data} />
+          <BulkBomImportDialog />
           <Button
             onClick={() => {
               setCode("");

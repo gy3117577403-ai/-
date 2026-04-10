@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import type { BatchImportPayload } from "@/lib/bom-batch-table3";
 import type { ParsedBomWhitelistRow } from "@/lib/bom-whitelist";
 
 /**
@@ -93,7 +94,12 @@ export async function processSmartBomImport(payload: SmartBomPayload) {
     });
 
     const product = await tx.product.upsert({
-      where: { code },
+      where: {
+        customerId_code: {
+          customerId: customer.id,
+          code,
+        },
+      },
       create: {
         code,
         name: code,
@@ -241,4 +247,133 @@ export async function importBomWhitelistForProduct(
     matched: matchCount,
     productCode: product.code,
   };
+}
+
+/**
+ * 表三批量导入：按「客户 → 主件规格」分组，每组合法 productId 下先 deleteMany 再 createMany，全事务。
+ */
+export async function batchImportBOM(payload: BatchImportPayload) {
+  try {
+    if (!Array.isArray(payload)) {
+      throw new Error("批量数据格式错误");
+    }
+    if (payload.length === 0) {
+      throw new Error("没有可导入的 BOM 分组");
+    }
+
+    const affectedProductIds: string[] = [];
+
+    await prisma.$transaction(async (tx) => {
+      for (const group of payload) {
+        const cName = String(group.customerName ?? "").trim();
+        const spec = String(group.productSpec ?? "").trim();
+        if (!cName) {
+          throw new Error("数据行存在客户名称缺失，解析中止");
+        }
+        if (!spec) {
+          throw new Error("数据行存在主件规格缺失，解析中止");
+        }
+
+        const bomCreate = (group.connectors ?? [])
+          .map((c) => {
+            const connectorModel = String(c.model ?? "").trim();
+            const quantity = parseBomQuantityStrict(c.quantity);
+            if (!connectorModel || quantity === null) return null;
+            return {
+              connectorModel,
+              quantity,
+              partNumber: null as string | null,
+              designator: null as string | null,
+              description: null as string | null,
+            };
+          })
+          .filter((row): row is NonNullable<typeof row> => row !== null);
+
+        if (!bomCreate.length) {
+          throw new Error(`主件规格「${spec}」下无有效连接器数据`);
+        }
+
+        const customer = await tx.customer.upsert({
+          where: { code: cName },
+          update: { name: cName },
+          create: { code: cName, name: cName },
+        });
+
+        const product = await tx.product.upsert({
+          where: {
+            customerId_code: {
+              customerId: customer.id,
+              code: spec,
+            },
+          },
+          create: {
+            code: spec,
+            name: spec,
+            customerId: customer.id,
+          },
+          update: {
+            name: spec,
+            customerId: customer.id,
+          },
+        });
+
+        const targetProductId = product.id;
+        affectedProductIds.push(targetProductId);
+
+        await tx.bomItem.deleteMany({ where: { productId: targetProductId } });
+
+        const dataToInsert = bomCreate.map((row) => ({
+          productId: targetProductId,
+          partNumber: row.partNumber,
+          designator: row.designator,
+          description: row.description,
+          connectorModel: row.connectorModel,
+          quantity: row.quantity,
+        }));
+
+        for (let i = 0; i < dataToInsert.length; i += CREATE_MANY_CHUNK) {
+          const chunk = dataToInsert.slice(i, i + CREATE_MANY_CHUNK);
+          await tx.bomItem.createMany({ data: chunk });
+        }
+      }
+    });
+
+    const inventories = await prisma.jigBaseInventory.findMany({
+      select: { modelCode: true, matingModel: true },
+    });
+
+    const uniqueProductIds = [...new Set(affectedProductIds)];
+    let matchCount = 0;
+    let totalConnectors = 0;
+
+    for (const pid of uniqueProductIds) {
+      const items = await prisma.bomItem.findMany({ where: { productId: pid } });
+      totalConnectors += items.length;
+      for (const item of items) {
+        const matched = fuzzyMatchJig(item.connectorModel, inventories);
+        if (matched) {
+          await prisma.bomItem.update({
+            where: { id: item.id },
+            data: { jigModel: matched },
+          });
+          matchCount++;
+        }
+      }
+    }
+
+    revalidatePath("/customers");
+    revalidatePath("/products");
+    for (const pid of uniqueProductIds) {
+      revalidatePath(`/products/${pid}/bom`);
+    }
+
+    return {
+      groups: payload.length,
+      totalConnectors,
+      matched: matchCount,
+    };
+  } catch (e) {
+    console.error("[batchImportBOM]", e);
+    throw e instanceof Error ? e : new Error("批量导入失败");
+  }
 }

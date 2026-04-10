@@ -126,7 +126,11 @@ export function BomClient({
           </div>
           <div className="flex items-center gap-2">
             <BulkBomImportDialog
-              fixedProduct={{ id: product.id, code: product.code }}
+              fixedProduct={{
+                id: product.id,
+                code: product.code,
+                customerName: product.customer.name,
+              }}
             />
             {bomItems.length > 0 && unmatchedCount > 0 && (
               <Button

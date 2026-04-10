@@ -47,10 +47,10 @@ model Customer {
   products Product[] // 该客户的产品列表
 }
 
-/// 产品
+/// 产品（主件规格 code 在同一客户内唯一，不同客户可同名）
 model Product {
   id         String   @id @default(cuid())
-  code       String   @unique // 产品编码，唯一
+  code       String // 主件规格编码 / 产品规格
   name       String // 产品名称
   customerId String // 所属客户 ID
   createdAt  DateTime @default(now())
@@ -60,6 +60,7 @@ model Product {
   bomItems BomItem[] // 该产品的 BOM 明细列表
   orders   Order[] // 该产品的生产开工记录
 
+  @@unique([customerId, code])
   @@index([customerId])
 }
 

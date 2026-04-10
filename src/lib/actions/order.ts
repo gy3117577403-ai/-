@@ -120,7 +120,12 @@ export async function createOrder(input: CreateOrderInput) {
     });
 
     const product = await prisma.product.upsert({
-      where: { code: prodCode },
+      where: {
+        customerId_code: {
+          customerId: customer.id,
+          code: prodCode,
+        },
+      },
       update: { name: prodCode, customerId: customer.id },
       create: { code: prodCode, name: prodCode, customerId: customer.id },
     });
