@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -25,6 +24,8 @@ interface DataTableProps<TData, TValue> {
   data: TData[];
   categoryTab: "JIG" | "OTHER";
   onCategoryChange: (tab: "JIG" | "OTHER") => void;
+  globalFilter: string;
+  onGlobalFilterChange: (value: string) => void;
 }
 
 export function DataTable<TData, TValue>({
@@ -32,14 +33,15 @@ export function DataTable<TData, TValue>({
   data,
   categoryTab,
   onCategoryChange,
+  globalFilter,
+  onGlobalFilterChange,
 }: DataTableProps<TData, TValue>) {
-  const [globalFilter, setGlobalFilter] = useState("");
 
   const table = useReactTable({
     data,
     columns,
     state: { globalFilter },
-    onGlobalFilterChange: setGlobalFilter,
+    onGlobalFilterChange,
     globalFilterFn: (row, _columnId, filterValue: string) => {
       const s = filterValue.toLowerCase();
       const modelCode = String(row.getValue("modelCode") ?? "").toLowerCase();
@@ -71,7 +73,7 @@ export function DataTable<TData, TValue>({
           <Input
             placeholder="模糊搜索型号、对插型号或备注…"
             value={globalFilter}
-            onChange={(e) => setGlobalFilter(e.target.value)}
+            onChange={(e) => onGlobalFilterChange(e.target.value)}
             className="w-64 pl-9"
           />
         </div>

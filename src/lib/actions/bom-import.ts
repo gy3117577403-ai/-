@@ -86,38 +86,41 @@ export async function processSmartBomImport(payload: SmartBomPayload) {
     throw new Error("连接器用量无法解析为有效数字，或型号为空，请检查表格");
   }
 
-  const productId = await prisma.$transaction(async (tx) => {
-    const customer = await tx.customer.upsert({
-      where: { code: name },
-      update: { name },
-      create: { code: name, name },
-    });
+  const productId = await prisma.$transaction(
+    async (tx) => {
+      const customer = await tx.customer.upsert({
+        where: { code: name },
+        update: { name },
+        create: { code: name, name },
+      });
 
-    const product = await tx.product.upsert({
-      where: {
-        customerId_code: {
-          customerId: customer.id,
+      const product = await tx.product.upsert({
+        where: {
+          customerId_code: {
+            customerId: customer.id,
+            code,
+          },
+        },
+        create: {
           code,
+          name: code,
+          customerId: customer.id,
+          bomItems: { create: bomCreate },
         },
-      },
-      create: {
-        code,
-        name: code,
-        customerId: customer.id,
-        bomItems: { create: bomCreate },
-      },
-      update: {
-        name: code,
-        customerId: customer.id,
-        bomItems: {
-          deleteMany: {},
-          create: bomCreate,
+        update: {
+          name: code,
+          customerId: customer.id,
+          bomItems: {
+            deleteMany: {},
+            create: bomCreate,
+          },
         },
-      },
-    });
+      });
 
-    return product.id;
-  });
+      return product.id;
+    },
+    BOM_IMPORT_TX_OPTIONS
+  );
 
   const inventories = await prisma.jigBaseInventory.findMany({
     select: { modelCode: true, matingModel: true },
@@ -151,6 +154,12 @@ export async function processSmartBomImport(payload: SmartBomPayload) {
 export const importBOMData = processSmartBomImport;
 
 const CREATE_MANY_CHUNK = 500;
+
+/** 大批量 BOM 写入：避免交互式事务默认 5s 超时导致 Transaction not found */
+const BOM_IMPORT_TX_OPTIONS = {
+  maxWait: 10_000,
+  timeout: 60_000,
+} as const;
 
 export type ImportBomWhitelistInput = {
   productId: string;
@@ -209,14 +218,17 @@ export async function importBomWhitelistForProduct(
     connectorModel: row.connectorModel,
   }));
 
-  await prisma.$transaction(async (tx) => {
-    await tx.bomItem.deleteMany({ where: { productId: targetProductId } });
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.bomItem.deleteMany({ where: { productId: targetProductId } });
 
-    for (let i = 0; i < dataToInsert.length; i += CREATE_MANY_CHUNK) {
-      const chunk = dataToInsert.slice(i, i + CREATE_MANY_CHUNK);
-      await tx.bomItem.createMany({ data: chunk });
-    }
-  });
+      for (let i = 0; i < dataToInsert.length; i += CREATE_MANY_CHUNK) {
+        const chunk = dataToInsert.slice(i, i + CREATE_MANY_CHUNK);
+        await tx.bomItem.createMany({ data: chunk });
+      }
+    },
+    BOM_IMPORT_TX_OPTIONS
+  );
 
   const inventories = await prisma.jigBaseInventory.findMany({
     select: { modelCode: true, matingModel: true },
@@ -263,80 +275,83 @@ export async function batchImportBOM(payload: BatchImportPayload) {
 
     const affectedProductIds: string[] = [];
 
-    await prisma.$transaction(async (tx) => {
-      for (const group of payload) {
-        const cName = String(group.customerName ?? "").trim();
-        const spec = String(group.productSpec ?? "").trim();
-        if (!cName) {
-          throw new Error("数据行存在客户名称缺失，解析中止");
-        }
-        if (!spec) {
-          throw new Error("数据行存在主件规格缺失，解析中止");
-        }
+    await prisma.$transaction(
+      async (tx) => {
+        for (const group of payload) {
+          const cName = String(group.customerName ?? "").trim();
+          const spec = String(group.productSpec ?? "").trim();
+          if (!cName) {
+            throw new Error("数据行存在客户名称缺失，解析中止");
+          }
+          if (!spec) {
+            throw new Error("数据行存在主件规格缺失，解析中止");
+          }
 
-        const bomCreate = (group.connectors ?? [])
-          .map((c) => {
-            const connectorModel = String(c.model ?? "").trim();
-            const quantity = parseBomQuantityStrict(c.quantity);
-            if (!connectorModel || quantity === null) return null;
-            return {
-              connectorModel,
-              quantity,
-              partNumber: null as string | null,
-              designator: null as string | null,
-              description: null as string | null,
-            };
-          })
-          .filter((row): row is NonNullable<typeof row> => row !== null);
+          const bomCreate = (group.connectors ?? [])
+            .map((c) => {
+              const connectorModel = String(c.model ?? "").trim();
+              const quantity = parseBomQuantityStrict(c.quantity);
+              if (!connectorModel || quantity === null) return null;
+              return {
+                connectorModel,
+                quantity,
+                partNumber: null as string | null,
+                designator: null as string | null,
+                description: null as string | null,
+              };
+            })
+            .filter((row): row is NonNullable<typeof row> => row !== null);
 
-        if (!bomCreate.length) {
-          throw new Error(`主件规格「${spec}」下无有效连接器数据`);
-        }
+          if (!bomCreate.length) {
+            throw new Error(`主件规格「${spec}」下无有效连接器数据`);
+          }
 
-        const customer = await tx.customer.upsert({
-          where: { code: cName },
-          update: { name: cName },
-          create: { code: cName, name: cName },
-        });
+          const customer = await tx.customer.upsert({
+            where: { code: cName },
+            update: { name: cName },
+            create: { code: cName, name: cName },
+          });
 
-        const product = await tx.product.upsert({
-          where: {
-            customerId_code: {
-              customerId: customer.id,
-              code: spec,
+          const product = await tx.product.upsert({
+            where: {
+              customerId_code: {
+                customerId: customer.id,
+                code: spec,
+              },
             },
-          },
-          create: {
-            code: spec,
-            name: spec,
-            customerId: customer.id,
-          },
-          update: {
-            name: spec,
-            customerId: customer.id,
-          },
-        });
+            create: {
+              code: spec,
+              name: spec,
+              customerId: customer.id,
+            },
+            update: {
+              name: spec,
+              customerId: customer.id,
+            },
+          });
 
-        const targetProductId = product.id;
-        affectedProductIds.push(targetProductId);
+          const targetProductId = product.id;
+          affectedProductIds.push(targetProductId);
 
-        await tx.bomItem.deleteMany({ where: { productId: targetProductId } });
+          await tx.bomItem.deleteMany({ where: { productId: targetProductId } });
 
-        const dataToInsert = bomCreate.map((row) => ({
-          productId: targetProductId,
-          partNumber: row.partNumber,
-          designator: row.designator,
-          description: row.description,
-          connectorModel: row.connectorModel,
-          quantity: row.quantity,
-        }));
+          const dataToInsert = bomCreate.map((row) => ({
+            productId: targetProductId,
+            partNumber: row.partNumber,
+            designator: row.designator,
+            description: row.description,
+            connectorModel: row.connectorModel,
+            quantity: row.quantity,
+          }));
 
-        for (let i = 0; i < dataToInsert.length; i += CREATE_MANY_CHUNK) {
-          const chunk = dataToInsert.slice(i, i + CREATE_MANY_CHUNK);
-          await tx.bomItem.createMany({ data: chunk });
+          for (let i = 0; i < dataToInsert.length; i += CREATE_MANY_CHUNK) {
+            const chunk = dataToInsert.slice(i, i + CREATE_MANY_CHUNK);
+            await tx.bomItem.createMany({ data: chunk });
+          }
         }
-      }
-    });
+      },
+      BOM_IMPORT_TX_OPTIONS
+    );
 
     const inventories = await prisma.jigBaseInventory.findMany({
       select: { modelCode: true, matingModel: true },

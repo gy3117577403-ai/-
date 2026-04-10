@@ -5,8 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
 import { SHORTAGE_UNMATCHED_JIG_PREFIX } from "@/lib/order-constants";
+import {
+  bomRowIsExplicitNoJig,
+  bomRowNeedsJigAssignment,
+} from "@/lib/bom-jig-status";
 
-async function loadJigInventoryMap(): Promise<Map<string, number>> {
+export async function loadJigInventoryMap(): Promise<Map<string, number>> {
   const inventories = await prisma.jigBaseInventory.findMany({
     where: { category: "JIG" },
   });
@@ -32,7 +36,7 @@ export async function evaluateOrderFulfillment(
     return { status: "NO_BOM", shortageInfo: null };
   }
 
-  const unmatched = bomItems.filter((b) => !b.jigModel?.trim());
+  const unmatched = bomItems.filter((b) => bomRowNeedsJigAssignment(b.jigModel));
   if (unmatched.length > 0) {
     const names = unmatched.map((b) => b.connectorModel).join(", ");
     return {
@@ -43,6 +47,8 @@ export async function evaluateOrderFulfillment(
 
   const shortages: string[] = [];
   for (const item of bomItems) {
+    if (bomRowIsExplicitNoJig(item.jigModel)) continue;
+
     const jig = item.jigModel!.trim();
     const stock = invMap.get(jig) ?? -1;
     if (stock < 0) {

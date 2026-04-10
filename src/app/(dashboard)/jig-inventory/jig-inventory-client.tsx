@@ -8,13 +8,16 @@ import { DataTable } from "./data-table";
 import { getColumns } from "./columns";
 import { JigDialog } from "@/components/jig-inventory/jig-dialog";
 import { ImportExcelButton } from "@/components/jig-inventory/import-excel-button";
+import { ExportExcelButton } from "@/components/export-excel-button";
 import { deleteJigInventory } from "@/lib/actions/jig-inventory";
+import { filterJigInventoryRows } from "@/lib/export-excel";
 import { toast } from "sonner";
 
 export function JigInventoryClient({ data }: { data: JigBaseInventory[] }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editData, setEditData] = useState<JigBaseInventory | null>(null);
   const [categoryTab, setCategoryTab] = useState<"JIG" | "OTHER">("JIG");
+  const [globalFilter, setGlobalFilter] = useState("");
   const [, startTransition] = useTransition();
 
   function handleEdit(row: JigBaseInventory) {
@@ -34,7 +37,12 @@ export function JigInventoryClient({ data }: { data: JigBaseInventory[] }) {
     });
   }
 
-  const filteredData = data.filter((d) => d.category === categoryTab);
+  const categoryData = data.filter((d) => d.category === categoryTab);
+  const rowsForExport = filterJigInventoryRows(
+    data,
+    categoryTab,
+    globalFilter
+  );
   const columns = getColumns({
     onEdit: handleEdit,
     onDelete: handleDelete,
@@ -51,6 +59,7 @@ export function JigInventoryClient({ data }: { data: JigBaseInventory[] }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportExcelButton rows={rowsForExport} />
           <ImportExcelButton />
           <Button
             onClick={() => {
@@ -66,9 +75,11 @@ export function JigInventoryClient({ data }: { data: JigBaseInventory[] }) {
 
       <DataTable
         columns={columns}
-        data={filteredData}
+        data={categoryData}
         categoryTab={categoryTab}
         onCategoryChange={setCategoryTab}
+        globalFilter={globalFilter}
+        onGlobalFilterChange={setGlobalFilter}
       />
 
       <JigDialog
