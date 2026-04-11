@@ -9,40 +9,48 @@ import {
   loadJigInventoryMap,
 } from "@/lib/actions/order";
 import { matchConnectorToJigModel } from "@/lib/bom-match";
-import { JIG_MODEL_NO_NEED, JIG_MODEL_UNMATCHED } from "@/lib/bom-jig-status";
+import {
+  JIG_MODEL_NO_NEED,
+  JIG_MODEL_UNMATCHED,
+  JIG_NONE_UI_LABEL,
+} from "@/lib/bom-jig-status";
 
-/** 新型号写入 BOM 时，总仓无记录则 quantity=0 反向建档（仅真实治具型号） */
-async function ensureJigBaseInventoryMirror(
-  jigModel: string | null | undefined,
+/**
+ * BOM 写入治具型号后的总仓反向同步：与单条 / 全厂分支无关，统一在此 upsert。
+ * 失败仅打日志，不抛错，不阻断 BOM 更新结果。
+ */
+async function syncJigModelToBaseInventory(
+  newJigModel: string | null | undefined,
   connectorModel: string
 ): Promise<void> {
-  const target = jigModel?.trim() ?? "";
-  if (!target || target === JIG_MODEL_UNMATCHED || target === JIG_MODEL_NO_NEED) {
-    return;
-  }
+  const targetJigModel = newJigModel?.trim() ?? "";
+
+  const isExempt =
+    !targetJigModel ||
+    targetJigModel === JIG_MODEL_UNMATCHED ||
+    targetJigModel === JIG_MODEL_NO_NEED ||
+    targetJigModel === JIG_NONE_UI_LABEL ||
+    targetJigModel === "_none_";
+
+  if (isExempt) return;
+
+  const mating =
+    connectorModel?.trim() ? connectorModel.trim() : null;
 
   try {
-    const existing = await prisma.jigBaseInventory.findUnique({
-      where: { modelCode: target },
-    });
-    if (existing) return;
-
-    await prisma.jigBaseInventory.create({
-      data: {
-        modelCode: target,
-        matingModel: connectorModel.trim() || null,
+    await prisma.jigBaseInventory.upsert({
+      where: { modelCode: targetJigModel },
+      update: {},
+      create: {
+        modelCode: targetJigModel,
+        matingModel: mating,
         quantity: 0,
         category: "JIG",
       },
     });
-
     revalidatePath("/jig-inventory");
   } catch (error) {
-    console.error(
-      "[ensureJigBaseInventoryMirror] 反向建档失败:",
-      error instanceof Error ? error.stack ?? error.message : error
-    );
-    throw error;
+    console.error("反向同步治具到总仓失败:", error);
   }
 }
 
@@ -111,7 +119,7 @@ export async function updateBomItemJig(
       data: { jigModel },
     });
 
-    await ensureJigBaseInventoryMirror(jigModel, targetConnector);
+    await syncJigModelToBaseInventory(jigModel, targetConnector);
 
     revalidatePath("/customers");
     revalidatePath("/orders");
@@ -126,7 +134,7 @@ export async function updateBomItemJig(
     where: { id: bomItemId },
     data: { jigModel },
   });
-  await ensureJigBaseInventoryMirror(jigModel, row.connectorModel);
+  await syncJigModelToBaseInventory(jigModel, row.connectorModel);
 
   revalidatePath(`/products/${productId}/bom`);
   return { updated: 1 };
