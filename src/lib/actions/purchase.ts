@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import type { PurchaseStatus, ItemCategory } from "@prisma/client";
+import type { PurchaseStatus, ItemCategory, PaymentStatus } from "@prisma/client";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
 
@@ -81,6 +81,10 @@ export async function updatePurchaseStatus(
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("请购单不存在");
 
+  if (newStatus === "ORDERED") {
+    throw new Error("请通过「标记已采购」表单登记实际金额与合同信息");
+  }
+
   assertPurchaseTransition(session.role, row.status, newStatus);
 
   if (newStatus === "RECEIVED") {
@@ -124,6 +128,101 @@ export async function updatePurchaseStatus(
     "状态变更",
     "物品采购",
     "将请购单 " + row.requestNo + " 的状态修改为: " + newStatus
+  );
+
+  revalidatePath("/purchases");
+}
+
+const LARGE_AMOUNT_THRESHOLD = 500;
+
+/** 采购员标记已采购：写入实际金额；≥500 元须合同号并进入付款待审 */
+export async function markOrderedWithDetailsAction(
+  id: string,
+  actualCost: number,
+  contractNo?: string | null,
+  invoiceNo?: string | null
+) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "PURCHASER" && session.role !== "ADMIN") {
+    throw new Error("无采购执行权限");
+  }
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!row) throw new Error("请购单不存在");
+  if (row.status !== "APPROVED") {
+    throw new Error("仅已批准请购单可标记已采购");
+  }
+
+  const cost = Math.round(Number(actualCost) * 100) / 100;
+  if (!Number.isFinite(cost) || cost < 0) {
+    throw new Error("实际金额无效");
+  }
+  if (cost === 0) {
+    throw new Error("实际金额须大于 0");
+  }
+
+  const trimmedContract = contractNo?.trim() || null;
+  const trimmedInvoice = invoiceNo?.trim() || null;
+
+  let paymentStatus: PaymentStatus = "UNPAID";
+  let finalContract: string | null = null;
+
+  if (cost >= LARGE_AMOUNT_THRESHOLD) {
+    if (!trimmedContract) {
+      throw new Error("实际金额达到或超过 500 元时，必须填写合同编号");
+    }
+    paymentStatus = "APPROVING";
+    finalContract = trimmedContract;
+  } else {
+    finalContract = trimmedContract;
+  }
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: {
+      status: "ORDERED",
+      actualCost: cost,
+      contractNo: finalContract,
+      invoiceNo: trimmedInvoice || null,
+      paymentStatus,
+    },
+  });
+
+  await createLog(
+    session.name,
+    "标记已采购",
+    "物品采购",
+    `请购单 ${row.requestNo} 已采购，实际金额 ${cost} 元，付款状态 ${paymentStatus}`
+  );
+
+  revalidatePath("/purchases");
+}
+
+/** 领导/管理员确认大额付款 */
+export async function approvePaymentAction(id: string) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "BOSS" && session.role !== "ADMIN") {
+    throw new Error("无付款审批权限");
+  }
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!row) throw new Error("请购单不存在");
+  if (row.paymentStatus !== "APPROVING") {
+    throw new Error("当前单据不在待付款审批状态");
+  }
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { paymentStatus: "PAID" },
+  });
+
+  await createLog(
+    session.name,
+    "付款审批",
+    "物品采购",
+    `请购单 ${row.requestNo} 付款已批准（已付）`
   );
 
   revalidatePath("/purchases");

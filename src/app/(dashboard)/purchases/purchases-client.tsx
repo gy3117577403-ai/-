@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { PurchaseRequest, PurchaseStatus } from "@prisma/client";
 import type { Table } from "@tanstack/react-table";
 import * as XLSX from "xlsx";
@@ -19,7 +19,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "./data-table";
 import { getColumns } from "./columns";
 import { CreatePurchaseDialog } from "@/components/purchases/create-purchase-dialog";
+import { ContractPrintView } from "@/components/purchases/contract-print-view";
+import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
+  approvePaymentAction,
   cancelPurchaseRequestAction,
   deletePurchaseRequest,
   updatePurchaseStatus,
@@ -101,6 +104,26 @@ export function PurchasesClient({
   const [rejectRemark, setRejectRemark] = useState("");
   const [rejectPending, startRejectTransition] = useTransition();
 
+  const [markOrderedOpen, setMarkOrderedOpen] = useState(false);
+  const [markOrderedTarget, setMarkOrderedTarget] =
+    useState<PurchaseRequest | null>(null);
+
+  const [contractPrintRow, setContractPrintRow] =
+    useState<PurchaseRequest | null>(null);
+
+  useEffect(() => {
+    const onAfterPrint = () =>
+      setContractPrintRow((prev) => (prev ? null : prev));
+    window.addEventListener("afterprint", onAfterPrint);
+    return () => window.removeEventListener("afterprint", onAfterPrint);
+  }, []);
+
+  useEffect(() => {
+    if (!contractPrintRow) return;
+    const id = window.setTimeout(() => window.print(), 450);
+    return () => window.clearTimeout(id);
+  }, [contractPrintRow]);
+
   function handleApprove(row: PurchaseRequest) {
     startTransition(async () => {
       try {
@@ -147,14 +170,24 @@ export function PurchasesClient({
   }
 
   function handleMarkOrdered(row: PurchaseRequest) {
+    setMarkOrderedTarget(row);
+    setMarkOrderedOpen(true);
+  }
+
+  function handleApprovePayment(row: PurchaseRequest) {
+    if (!confirm(`确认「${row.requestNo}」付款审批通过？`)) return;
     startTransition(async () => {
       try {
-        await updatePurchaseStatus(row.id, "ORDERED");
-        toast.success(`请购单 ${row.requestNo} 已标记已采购`);
+        await approvePaymentAction(row.id);
+        toast.success(`请购单 ${row.requestNo} 已标记为已付款`);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "操作失败");
       }
     });
+  }
+
+  function handlePrintContract(row: PurchaseRequest) {
+    setContractPrintRow(row);
   }
 
   function handleMarkReceived(row: PurchaseRequest) {
@@ -237,6 +270,8 @@ export function PurchasesClient({
     onMarkReceived: handleMarkReceived,
     onDelete: handleDelete,
     onWithdraw: handleWithdraw,
+    onApprovePayment: handleApprovePayment,
+    onPrintContract: handlePrintContract,
   });
 
   return (
@@ -270,6 +305,51 @@ export function PurchasesClient({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
       />
+
+      <MarkOrderedDialog
+        open={markOrderedOpen}
+        onOpenChange={(open) => {
+          setMarkOrderedOpen(open);
+          if (!open) setMarkOrderedTarget(null);
+        }}
+        purchase={markOrderedTarget}
+      />
+
+      {contractPrintRow && (
+        <div
+          className="no-print-contract-ui fixed inset-0 z-100 flex items-start justify-center bg-black/45 p-4 print:hidden"
+          role="presentation"
+          onClick={() => setContractPrintRow(null)}
+        >
+          <div
+            className="mt-6 max-h-[92vh] w-full max-w-[min(220mm,100vw)] overflow-auto rounded-lg bg-white shadow-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-label="合同预览"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+              <Button type="button" size="sm" onClick={() => window.print()}>
+                打印
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setContractPrintRow(null)}
+              >
+                关闭
+              </Button>
+              <span className="text-xs text-slate-500">
+                已自动弹出系统打印窗口；若未弹出请点击「打印」。
+              </span>
+            </div>
+            <div className="p-2">
+              <ContractPrintView purchase={contractPrintRow} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog
         open={rejectOpen}

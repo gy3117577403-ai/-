@@ -1,7 +1,11 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import type { PurchaseRequest, PurchaseStatus } from "@prisma/client";
+import type {
+  PaymentStatus,
+  PurchaseRequest,
+  PurchaseStatus,
+} from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +24,8 @@ import {
   ExternalLink,
   Trash2,
   Undo2,
+  FileText,
+  Banknote,
 } from "lucide-react";
 import { formatInShanghai } from "@/lib/dayjs-shanghai";
 
@@ -35,6 +41,17 @@ const statusConfig: Record<
   CANCELLED: { label: "已撤回", className: "bg-slate-500/90 text-white" },
 };
 
+const paymentBadge: Record<
+  PaymentStatus,
+  { label: string; className: string }
+> = {
+  UNPAID: { label: "未付款", className: "bg-slate-500/80 text-white" },
+  APPROVING: { label: "待付款审批", className: "bg-orange-500/90 text-white" },
+  PAID: { label: "已付款", className: "bg-emerald-600/90 text-white" },
+};
+
+const LARGE_AMOUNT = 500;
+
 export function getColumns(options: {
   role: string;
   sessionName: string;
@@ -45,6 +62,8 @@ export function getColumns(options: {
   onMarkReceived: (row: PurchaseRequest) => void;
   onDelete: (row: PurchaseRequest) => void;
   onWithdraw: (row: PurchaseRequest) => void;
+  onApprovePayment: (row: PurchaseRequest) => void;
+  onPrintContract: (row: PurchaseRequest) => void;
 }): ColumnDef<PurchaseRequest>[] {
   const { role, sessionName, sessionUserId } = options;
 
@@ -133,6 +152,23 @@ export function getColumns(options: {
       },
     },
     {
+      accessorKey: "paymentStatus",
+      header: "付款状态",
+      cell: ({ row }) => {
+        const req = row.original;
+        if (req.status !== "ORDERED" && req.status !== "RECEIVED") {
+          return <span className="text-xs text-slate-400">—</span>;
+        }
+        const ps = row.getValue("paymentStatus") as PaymentStatus;
+        const cfg = paymentBadge[ps];
+        return (
+          <Badge variant="default" className={cfg.className}>
+            {cfg.label}
+          </Badge>
+        );
+      },
+    },
+    {
       accessorKey: "remark",
       header: "备注",
       cell: ({ row }) => {
@@ -180,6 +216,17 @@ export function getColumns(options: {
           canApprove && req.status === "PENDING";
         const showOrdered = canPurchaser && req.status === "APPROVED";
         const showReceived = canPurchaser && req.status === "ORDERED";
+        const showApprovePayment =
+          (role === "BOSS" || role === "ADMIN") &&
+          req.status === "ORDERED" &&
+          req.paymentStatus === "APPROVING";
+        const actual = req.actualCost;
+        const showPrintContract =
+          (canPurchaser || canApprove) &&
+          req.status === "ORDERED" &&
+          actual != null &&
+          Number.isFinite(actual) &&
+          actual >= LARGE_AMOUNT;
         const showAdminDelete = role === "ADMIN";
         const showDelete =
           req.status === "PENDING" &&
@@ -196,6 +243,8 @@ export function getColumns(options: {
           !showApproveReject &&
           !showOrdered &&
           !showReceived &&
+          !showApprovePayment &&
+          !showPrintContract &&
           !showDelete &&
           !showAdminDelete &&
           !showWithdraw
@@ -240,9 +289,38 @@ export function getColumns(options: {
                   已入库
                 </DropdownMenuItem>
               )}
-              {showWithdraw && (
+              {showApprovePayment && (
                 <>
                   {(showApproveReject || showOrdered || showReceived) && (
+                    <DropdownMenuSeparator />
+                  )}
+                  <DropdownMenuItem
+                    onClick={() => options.onApprovePayment(req)}
+                  >
+                    <Banknote />
+                    付款审批通过
+                  </DropdownMenuItem>
+                </>
+              )}
+              {showPrintContract && (
+                <>
+                  {(showApproveReject ||
+                    showOrdered ||
+                    showReceived ||
+                    showApprovePayment) && <DropdownMenuSeparator />}
+                  <DropdownMenuItem onClick={() => options.onPrintContract(req)}>
+                    <FileText />
+                    生成合同
+                  </DropdownMenuItem>
+                </>
+              )}
+              {showWithdraw && (
+                <>
+                  {(showApproveReject ||
+                    showOrdered ||
+                    showReceived ||
+                    showApprovePayment ||
+                    showPrintContract) && (
                     <DropdownMenuSeparator />
                   )}
                   <DropdownMenuItem onClick={() => options.onWithdraw(req)}>
@@ -256,6 +334,8 @@ export function getColumns(options: {
                   {(showApproveReject ||
                     showOrdered ||
                     showReceived ||
+                    showApprovePayment ||
+                    showPrintContract ||
                     showWithdraw) && (
                     <DropdownMenuSeparator />
                   )}

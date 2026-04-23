@@ -142,22 +142,34 @@ enum PurchaseStatus {
   CANCELLED // 已撤回（申请人主动关闭）
 }
 
+/// 对公 / 大额付款审批状态
+enum PaymentStatus {
+  UNPAID // 未付款（小额默认）
+  APPROVING // 待付款审批（大额对公）
+  PAID // 已批准付款
+}
+
 /// 物品采购申请
 model PurchaseRequest {
-  id            String         @id @default(cuid())
-  requestNo     String         @unique // 请购单号
-  applicant     String // 申请人
-  itemName      String // 物资型号
-  quantity      Int // 数量
-  link          String? // 购买链接
-  estimatedCost Float // 预估总金额
-  category      ItemCategory   @default(JIG) // 物资分类
-  status        PurchaseStatus @default(PENDING)
-  remark        String? // 驳回理由或备注
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id              String          @id @default(cuid())
+  requestNo       String          @unique // 请购单号
+  applicant       String // 申请人
+  itemName        String // 物资型号
+  quantity        Int // 数量
+  link            String? // 购买链接
+  estimatedCost   Float // 预估总金额
+  actualCost      Float? // 实际采购金额（标记已采购时填写）
+  contractNo      String? // 合同编号（大额必填）
+  invoiceNo       String? // 发票号
+  paymentStatus   PaymentStatus   @default(UNPAID)
+  category        ItemCategory    @default(JIG) // 物资分类
+  status          PurchaseStatus  @default(PENDING)
+  remark          String? // 驳回理由或备注
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   @@index([status])
+  @@index([paymentStatus])
   @@index([createdAt])
 }
 
