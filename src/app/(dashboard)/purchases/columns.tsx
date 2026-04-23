@@ -19,8 +19,9 @@ import {
   PackageCheck,
   ExternalLink,
   Trash2,
+  Undo2,
 } from "lucide-react";
-import { format } from "date-fns";
+import { formatInShanghai } from "@/lib/dayjs-shanghai";
 
 const statusConfig: Record<
   PurchaseStatus,
@@ -31,18 +32,21 @@ const statusConfig: Record<
   REJECTED: { label: "已驳回", className: "bg-slate-400 text-white" },
   ORDERED: { label: "已采购", className: "bg-indigo-500/90 text-white" },
   RECEIVED: { label: "已入库", className: "bg-emerald-500/90 text-white" },
+  CANCELLED: { label: "已撤回", className: "bg-slate-500/90 text-white" },
 };
 
 export function getColumns(options: {
   role: string;
   sessionName: string;
+  sessionUserId: string;
   onApprove: (row: PurchaseRequest) => void;
   onReject: (row: PurchaseRequest) => void;
   onMarkOrdered: (row: PurchaseRequest) => void;
   onMarkReceived: (row: PurchaseRequest) => void;
   onDelete: (row: PurchaseRequest) => void;
+  onWithdraw: (row: PurchaseRequest) => void;
 }): ColumnDef<PurchaseRequest>[] {
-  const { role, sessionName } = options;
+  const { role, sessionName, sessionUserId } = options;
 
   return [
     {
@@ -122,7 +126,9 @@ export function getColumns(options: {
         if (filterValue === "__active__")
           return s === "APPROVED" || s === "ORDERED";
         if (filterValue === "__done__")
-          return s === "RECEIVED" || s === "REJECTED";
+          return (
+            s === "RECEIVED" || s === "REJECTED" || s === "CANCELLED"
+          );
         return s === filterValue;
       },
     },
@@ -147,7 +153,10 @@ export function getColumns(options: {
       accessorKey: "createdAt",
       header: "申请时间",
       cell: ({ row }) =>
-        format(new Date(row.getValue("createdAt")), "yyyy-MM-dd HH:mm"),
+        formatInShanghai(
+          row.getValue("createdAt") as Date | string,
+          "YYYY-MM-DD HH:mm"
+        ),
     },
     {
       id: "actions",
@@ -155,7 +164,9 @@ export function getColumns(options: {
       cell: ({ row }) => {
         const req = row.original;
         const isTerminal =
-          req.status === "RECEIVED" || req.status === "REJECTED";
+          req.status === "RECEIVED" ||
+          req.status === "REJECTED" ||
+          req.status === "CANCELLED";
 
         if (isTerminal && role !== "ADMIN") {
           return <span className="text-xs text-slate-400">已结束</span>;
@@ -175,12 +186,19 @@ export function getColumns(options: {
           isEngineer &&
           req.applicant.trim() === sessionName.trim();
 
+        const applicantTrim = req.applicant.trim();
+        const showWithdraw =
+          req.status === "PENDING" &&
+          (applicantTrim === sessionName.trim() ||
+            applicantTrim === sessionUserId.trim());
+
         if (
           !showApproveReject &&
           !showOrdered &&
           !showReceived &&
           !showDelete &&
-          !showAdminDelete
+          !showAdminDelete &&
+          !showWithdraw
         ) {
           return <span className="text-xs text-slate-400">-</span>;
         }
@@ -222,9 +240,23 @@ export function getColumns(options: {
                   已入库
                 </DropdownMenuItem>
               )}
-              {showDelete && !showAdminDelete && (
+              {showWithdraw && (
                 <>
                   {(showApproveReject || showOrdered || showReceived) && (
+                    <DropdownMenuSeparator />
+                  )}
+                  <DropdownMenuItem onClick={() => options.onWithdraw(req)}>
+                    <Undo2 />
+                    撤回申请
+                  </DropdownMenuItem>
+                </>
+              )}
+              {showDelete && !showAdminDelete && (
+                <>
+                  {(showApproveReject ||
+                    showOrdered ||
+                    showReceived ||
+                    showWithdraw) && (
                     <DropdownMenuSeparator />
                   )}
                   <DropdownMenuItem

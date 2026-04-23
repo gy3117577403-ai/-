@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type MutableRefObject } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -8,6 +8,7 @@ import {
   flexRender,
   type ColumnDef,
   type ColumnFiltersState,
+  type Table as TanstackTable,
 } from "@tanstack/react-table";
 import {
   Table,
@@ -24,6 +25,8 @@ import { Search } from "lucide-react";
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
+  /** 供父组件读取当前筛选后的 TanStack Table 实例（如导出） */
+  tableRef?: MutableRefObject<TanstackTable<TData> | null>;
 }
 
 const tabFilters: { value: string; label: string; filter: string }[] = [
@@ -36,6 +39,7 @@ const tabFilters: { value: string; label: string; filter: string }[] = [
 export function DataTable<TData, TValue>({
   columns,
   data,
+  tableRef,
 }: DataTableProps<TData, TValue>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -56,6 +60,14 @@ export function DataTable<TData, TValue>({
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
   });
+
+  useEffect(() => {
+    if (!tableRef) return;
+    tableRef.current = table;
+    return () => {
+      tableRef.current = null;
+    };
+  }, [table, tableRef]);
 
   function handleTabChange(value: string) {
     const tab = tabFilters.find((t) => t.value === value);

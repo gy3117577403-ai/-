@@ -138,8 +138,30 @@ export async function deletePurchaseRequest(id: string) {
 
   // 若为管理员，可以无视状态强制删除
   if (session.role === "ADMIN") {
-    await prisma.purchaseRequest.delete({ where: { id } });
+    if (row.status === "RECEIVED") {
+      await prisma.$transaction(async (tx) => {
+        await tx.purchaseRequest.delete({ where: { id } });
+
+        const adj = await tx.jigBaseInventory.updateMany({
+          where: {
+            modelCode: row.itemName,
+            quantity: { gte: row.quantity },
+          },
+          data: { quantity: { decrement: row.quantity } },
+        });
+
+        if (adj.count === 0) {
+          throw new Error(
+            "总仓无该型号或库存不足以冲减本次入库数量，删除已回滚"
+          );
+        }
+      });
+    } else {
+      await prisma.purchaseRequest.delete({ where: { id } });
+    }
+
     revalidatePath("/purchases");
+    revalidatePath("/jig-inventory");
     return;
   }
 
@@ -157,5 +179,40 @@ export async function deletePurchaseRequest(id: string) {
   }
 
   await prisma.purchaseRequest.delete({ where: { id } });
+  revalidatePath("/purchases");
+}
+
+/** 申请人撤回：仅 PENDING 且本人可申请 */
+export async function cancelPurchaseRequestAction(id: string) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!row) throw new Error("请购单不存在");
+
+  if (row.status !== "PENDING") {
+    throw new Error("仅待审批的申请可撤回");
+  }
+
+  const applicant = row.applicant.trim();
+  const isApplicant =
+    applicant === session.name.trim() || applicant === session.userId.trim();
+
+  if (!isApplicant) {
+    throw new Error("只能撤回本人提交的申请");
+  }
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { status: "CANCELLED" },
+  });
+
+  await createLog(
+    session.name,
+    "撤回申请",
+    "物品采购",
+    "申请人撤回请购单 " + row.requestNo + "，状态已关闭"
+  );
+
   revalidatePath("/purchases");
 }

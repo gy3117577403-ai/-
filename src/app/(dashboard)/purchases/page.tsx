@@ -20,6 +20,7 @@ export default async function PurchasesPage() {
       data={data}
       role={session.role}
       sessionName={session.name}
+      sessionUserId={session.userId}
       enableConfetti={settings.enableConfetti === "true"}
     />
   );

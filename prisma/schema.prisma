@@ -139,6 +139,7 @@ enum PurchaseStatus {
   REJECTED // 已驳回
   ORDERED // 已采购
   RECEIVED // 已入库
+  CANCELLED // 已撤回（申请人主动关闭）
 }
 
 /// 物品采购申请
