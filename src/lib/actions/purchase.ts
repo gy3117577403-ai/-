@@ -199,18 +199,18 @@ export async function markOrderedWithDetailsAction(
   revalidatePath("/purchases");
 }
 
-/** 领导/管理员确认大额付款 */
-export async function approvePaymentAction(id: string) {
+/** 财务闭环：未付/待审均可一键标记为已付款 */
+export async function markAsPaidAction(id: string) {
   const session = await getSession();
   if (!session) throw new Error("未登录");
   if (session.role !== "BOSS" && session.role !== "ADMIN") {
-    throw new Error("无付款审批权限");
+    throw new Error("无付款确认权限");
   }
 
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("请购单不存在");
-  if (row.paymentStatus !== "APPROVING") {
-    throw new Error("当前单据不在待付款审批状态");
+  if (row.status !== "ORDERED" && row.status !== "RECEIVED") {
+    throw new Error("仅已采购或已入库单据可标记为已付款");
   }
 
   await prisma.purchaseRequest.update({
@@ -220,9 +220,44 @@ export async function approvePaymentAction(id: string) {
 
   await createLog(
     session.name,
-    "付款审批",
+    "标记已付款",
     "物品采购",
-    `请购单 ${row.requestNo} 付款已批准（已付）`
+    `请购单 ${row.requestNo} 已标记为已付款`
+  );
+
+  revalidatePath("/purchases");
+}
+
+/** 录入/修改发票号 */
+export async function updateInvoiceNoAction(id: string, invoiceNo: string) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (
+    session.role !== "ADMIN" &&
+    session.role !== "BOSS" &&
+    session.role !== "PURCHASER"
+  ) {
+    throw new Error("无发票录入权限");
+  }
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!row) throw new Error("请购单不存在");
+  if (row.status !== "ORDERED" && row.status !== "RECEIVED") {
+    throw new Error("仅已采购或已入库单据可维护发票号");
+  }
+
+  const trimmed = invoiceNo.trim();
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { invoiceNo: trimmed ? trimmed : null },
+  });
+
+  await createLog(
+    session.name,
+    "发票补录",
+    "物品采购",
+    `请购单 ${row.requestNo} 发票号已更新`
   );
 
   revalidatePath("/purchases");

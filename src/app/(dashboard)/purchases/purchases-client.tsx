@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { PurchaseRequest, PurchaseStatus } from "@prisma/client";
 import type { Table } from "@tanstack/react-table";
 import * as XLSX from "xlsx";
@@ -24,9 +25,10 @@ import { ContractPrintView } from "@/components/purchases/contract-print-view";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   adminUpdatePurchaseCostAction,
-  approvePaymentAction,
   cancelPurchaseRequestAction,
   deletePurchaseRequest,
+  markAsPaidAction,
+  updateInvoiceNoAction,
   updatePurchaseStatus,
 } from "@/lib/actions/purchase";
 import { formatInShanghai, shanghaiFileTimestamp } from "@/lib/dayjs-shanghai";
@@ -95,6 +97,7 @@ export function PurchasesClient({
   sessionUserId: string;
   enableConfetti: boolean;
 }) {
+  const router = useRouter();
   const tableRef = useRef<Table<PurchaseRequest> | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [, startTransition] = useTransition();
@@ -118,6 +121,12 @@ export function PurchasesClient({
     useState<PurchaseRequest | null>(null);
   const [editCostValue, setEditCostValue] = useState("");
   const [editCostPending, startEditCostTransition] = useTransition();
+
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoiceTarget, setInvoiceTarget] =
+    useState<PurchaseRequest | null>(null);
+  const [invoiceValue, setInvoiceValue] = useState("");
+  const [invoicePending, startInvoiceTransition] = useTransition();
 
   useEffect(() => {
     const onAfterPrint = () =>
@@ -182,14 +191,36 @@ export function PurchasesClient({
     setMarkOrderedOpen(true);
   }
 
-  function handleApprovePayment(row: PurchaseRequest) {
-    if (!confirm(`确认「${row.requestNo}」付款审批通过？`)) return;
+  function handleMarkAsPaid(row: PurchaseRequest) {
     startTransition(async () => {
       try {
-        await approvePaymentAction(row.id);
-        toast.success(`请购单 ${row.requestNo} 已标记为已付款`);
+        await markAsPaidAction(row.id);
+        toast.success("付款已确认");
+        router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "操作失败");
+      }
+    });
+  }
+
+  function handleEditInvoice(row: PurchaseRequest) {
+    setInvoiceTarget(row);
+    setInvoiceValue(row.invoiceNo?.trim() ?? "");
+    setInvoiceOpen(true);
+  }
+
+  function handleSaveInvoice() {
+    if (!invoiceTarget) return;
+    startInvoiceTransition(async () => {
+      try {
+        await updateInvoiceNoAction(invoiceTarget.id, invoiceValue);
+        toast.success("发票已更新");
+        setInvoiceOpen(false);
+        setInvoiceTarget(null);
+        setInvoiceValue("");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "保存失败");
       }
     });
   }
@@ -227,6 +258,7 @@ export function PurchasesClient({
         setEditCostOpen(false);
         setEditCostTarget(null);
         setEditCostValue("");
+        router.refresh();
       } catch (e) {
         const msg = e instanceof Error ? e.message : "保存失败";
         toast.error(msg === "Unauthorized" ? "无权限执行此操作" : msg);
@@ -314,7 +346,8 @@ export function PurchasesClient({
     onMarkReceived: handleMarkReceived,
     onDelete: handleDelete,
     onWithdraw: handleWithdraw,
-    onApprovePayment: handleApprovePayment,
+    onMarkAsPaid: handleMarkAsPaid,
+    onEditInvoice: handleEditInvoice,
     onPrintContract: handlePrintContract,
     onAdminEditCost: handleAdminEditCost,
   });
@@ -447,6 +480,56 @@ export function PurchasesClient({
               disabled={editCostPending}
             >
               {editCostPending ? "保存中…" : "保存"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={invoiceOpen}
+        onOpenChange={(open) => {
+          setInvoiceOpen(open);
+          if (!open) {
+            setInvoiceTarget(null);
+            setInvoiceValue("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>录入/修改发票</DialogTitle>
+            <DialogDescription>
+              {invoiceTarget
+                ? `请购单号 ${invoiceTarget.requestNo}，保存后仅更新发票号字段。`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="invoice-no">发票号码</Label>
+            <Input
+              id="invoice-no"
+              type="text"
+              placeholder="请输入发票号，可留空清除"
+              value={invoiceValue}
+              onChange={(e) => setInvoiceValue(e.target.value)}
+              disabled={invoicePending}
+            />
+          </div>
+          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setInvoiceOpen(false)}
+              disabled={invoicePending}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSaveInvoice}
+              disabled={invoicePending}
+            >
+              {invoicePending ? "保存中…" : "保存"}
             </Button>
           </DialogFooter>
         </DialogContent>

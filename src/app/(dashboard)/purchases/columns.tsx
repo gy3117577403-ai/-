@@ -25,8 +25,9 @@ import {
   Trash2,
   Undo2,
   FileText,
-  Banknote,
   PencilLine,
+  CircleCheck,
+  Receipt,
 } from "lucide-react";
 import { formatInShanghai } from "@/lib/dayjs-shanghai";
 
@@ -63,7 +64,8 @@ export function getColumns(options: {
   onMarkReceived: (row: PurchaseRequest) => void;
   onDelete: (row: PurchaseRequest) => void;
   onWithdraw: (row: PurchaseRequest) => void;
-  onApprovePayment: (row: PurchaseRequest) => void;
+  onMarkAsPaid: (row: PurchaseRequest) => void;
+  onEditInvoice: (row: PurchaseRequest) => void;
   onPrintContract: (row: PurchaseRequest) => void;
   onAdminEditCost: (row: PurchaseRequest) => void;
 }): ColumnDef<PurchaseRequest>[] {
@@ -109,6 +111,42 @@ export function getColumns(options: {
           ¥{(row.getValue("estimatedCost") as number).toFixed(2)}
         </span>
       ),
+    },
+    {
+      accessorKey: "actualCost",
+      header: "实际金额",
+      cell: ({ row }) => {
+        const v = row.getValue("actualCost") as number | null;
+        if (v != null && Number.isFinite(v)) {
+          return (
+            <span className="tabular-nums font-medium text-slate-800">
+              ¥{v.toFixed(2)}
+            </span>
+          );
+        }
+        return <span className="text-xs text-slate-400">—</span>;
+      },
+    },
+    {
+      accessorKey: "invoiceNo",
+      header: "发票号",
+      cell: ({ row }) => {
+        const req = row.original;
+        if (req.status !== "ORDERED" && req.status !== "RECEIVED") {
+          return <span className="text-xs text-slate-400">—</span>;
+        }
+        const inv = row.getValue("invoiceNo") as string | null;
+        return inv?.trim() ? (
+          <span
+            className="max-w-[140px] truncate font-mono text-xs text-slate-700"
+            title={inv}
+          >
+            {inv}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">未登记</span>
+        );
+      },
     },
     {
       accessorKey: "link",
@@ -218,10 +256,13 @@ export function getColumns(options: {
           canApprove && req.status === "PENDING";
         const showOrdered = canPurchaser && req.status === "APPROVED";
         const showReceived = canPurchaser && req.status === "ORDERED";
-        const showApprovePayment =
+        const showMarkAsPaid =
           (role === "BOSS" || role === "ADMIN") &&
-          req.status === "ORDERED" &&
-          req.paymentStatus === "APPROVING";
+          (req.status === "ORDERED" || req.status === "RECEIVED") &&
+          req.paymentStatus !== "PAID";
+        const showEditInvoice =
+          (role === "ADMIN" || role === "BOSS" || role === "PURCHASER") &&
+          (req.status === "ORDERED" || req.status === "RECEIVED");
         const actual = req.actualCost;
         const showPrintContract =
           (canPurchaser || canApprove) &&
@@ -245,7 +286,8 @@ export function getColumns(options: {
           !showApproveReject &&
           !showOrdered &&
           !showReceived &&
-          !showApprovePayment &&
+          !showMarkAsPaid &&
+          !showEditInvoice &&
           !showPrintContract &&
           !showDelete &&
           !showAdminDelete &&
@@ -291,16 +333,26 @@ export function getColumns(options: {
                   已入库
                 </DropdownMenuItem>
               )}
-              {showApprovePayment && (
+              {showMarkAsPaid && (
                 <>
                   {(showApproveReject || showOrdered || showReceived) && (
                     <DropdownMenuSeparator />
                   )}
-                  <DropdownMenuItem
-                    onClick={() => options.onApprovePayment(req)}
-                  >
-                    <Banknote />
-                    付款审批通过
+                  <DropdownMenuItem onClick={() => options.onMarkAsPaid(req)}>
+                    <CircleCheck />
+                    标记为已付款
+                  </DropdownMenuItem>
+                </>
+              )}
+              {showEditInvoice && (
+                <>
+                  {(showApproveReject ||
+                    showOrdered ||
+                    showReceived ||
+                    showMarkAsPaid) && <DropdownMenuSeparator />}
+                  <DropdownMenuItem onClick={() => options.onEditInvoice(req)}>
+                    <Receipt />
+                    录入/修改发票
                   </DropdownMenuItem>
                 </>
               )}
@@ -309,7 +361,8 @@ export function getColumns(options: {
                   {(showApproveReject ||
                     showOrdered ||
                     showReceived ||
-                    showApprovePayment) && <DropdownMenuSeparator />}
+                    showMarkAsPaid ||
+                    showEditInvoice) && <DropdownMenuSeparator />}
                   <DropdownMenuItem onClick={() => options.onPrintContract(req)}>
                     <FileText />
                     生成合同
@@ -321,7 +374,8 @@ export function getColumns(options: {
                   {(showApproveReject ||
                     showOrdered ||
                     showReceived ||
-                    showApprovePayment ||
+                    showMarkAsPaid ||
+                    showEditInvoice ||
                     showPrintContract) && (
                     <DropdownMenuSeparator />
                   )}
@@ -336,7 +390,8 @@ export function getColumns(options: {
                   {(showApproveReject ||
                     showOrdered ||
                     showReceived ||
-                    showApprovePayment ||
+                    showMarkAsPaid ||
+                    showEditInvoice ||
                     showPrintContract ||
                     showWithdraw) && (
                     <DropdownMenuSeparator />
@@ -355,7 +410,8 @@ export function getColumns(options: {
                   {(showApproveReject ||
                     showOrdered ||
                     showReceived ||
-                    showApprovePayment ||
+                    showMarkAsPaid ||
+                    showEditInvoice ||
                     showPrintContract ||
                     showWithdraw ||
                     (showDelete && !showAdminDelete)) && (
