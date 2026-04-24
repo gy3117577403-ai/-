@@ -65,16 +65,17 @@ export async function createPurchase(data: {
   revalidatePath("/purchases");
 
   const base = resolveAppBaseUrl();
-  const linkLine = base
+  const linkPart = base
     ? `[👉 点击前往审批](${base}/purchases)`
-    : "> 审批入口：请配置环境变量 NEXT_PUBLIC_APP_URL 后，在系统内打开「物品采购审批」";
+    : "请配置 NEXT_PUBLIC_APP_URL 后在系统内打开「物品采购审批」";
   const cost = created.estimatedCost.toFixed(2);
   void sendWeComMessage(
     `🔔 **新采购审批提醒**\n` +
       `> 申请人：<font color="info">${created.applicant}</font>\n` +
       `> 物资：${created.itemName} x ${created.quantity}\n` +
-      `> 预估金额：<font color="warning">${cost}元</font>\n` +
-      linkLine
+      `> 预估金额：<font color="warning">${cost}元</font>\n\n` +
+      `<font color="info">@邓总</font> 老板有新的采购单，` +
+      linkPart
   );
 }
 
@@ -142,6 +143,13 @@ export async function updatePurchaseStatus(
     revalidatePath("/purchases");
     revalidatePath("/jig-inventory");
 
+    void sendWeComMessage(
+      `📦 **到货入库提醒**\n` +
+        `> 申请人：${row.applicant}\n` +
+        `> 物资：${row.itemName} x ${row.quantity}\n\n` +
+        `<font color="info">@${row.applicant}</font> 你申请的物资已经入库啦，请留意！`
+    );
+
     await createLog(
       session.name,
       "状态变更",
@@ -161,8 +169,8 @@ export async function updatePurchaseStatus(
     void sendWeComMessage(
       `✅ **采购申请已批准**\n` +
         `> 申请人：${row.applicant}\n` +
-        `> 物资：${row.itemName}\n` +
-        `请采购员尽快下单！`
+        `> 物资：${row.itemName}\n\n` +
+        `<font color="info">@王伟红</font> 单据已批，请尽快下单购买！`
     );
   }
 

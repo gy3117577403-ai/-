@@ -1,5 +1,6 @@
 /**
- * 企业微信机器人 Webhook（markdown）。失败仅打日志，绝不抛错影响主流程。
+ * 企业微信机器人 Webhook（markdown）：单次 fetch，无 mentionedMobiles、无双发。
+ * 失败仅打日志，绝不抛错影响主流程。
  */
 
 export function resolveAppBaseUrl(): string {
