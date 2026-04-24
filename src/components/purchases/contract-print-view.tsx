@@ -94,7 +94,12 @@ export function ContractPrintView({ purchase }: Props) {
                 合计（人民币）
               </td>
               <td className="border border-black px-2 py-2 text-right font-bold tabular-nums">
-                ¥{total.toFixed(2)}
+                <div className="flex flex-col items-end">
+                  <span>¥{total.toFixed(2)}</span>
+                  <span className="text-[11px] font-medium text-slate-700">
+                    (含13%增值税，含运费)
+                  </span>
+                </div>
               </td>
             </tr>
           </tfoot>
@@ -116,6 +121,14 @@ export function ContractPrintView({ purchase }: Props) {
           <p>
             <span className="font-semibold">四、违约责任：</span>
             任何一方未按约定履行义务的，应承担继续履行、采取补救措施或赔偿损失等违约责任；乙方迟延交货或交付不符合约定的，甲方有权要求乙方支付违约金并赔偿甲方因此遭受的直接经济损失（违约金及赔偿总额以法律规定及双方另行约定为限）。
+          </p>
+          <p>
+            <span className="font-semibold">五、运输方式：</span>
+            由供方承担（含运费）。
+          </p>
+          <p>
+            <span className="font-semibold">六、付款方式：</span>
+            供方开具13%增值税专用发票（含税）。
           </p>
         </section>
 
