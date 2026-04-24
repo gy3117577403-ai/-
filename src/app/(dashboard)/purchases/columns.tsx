@@ -236,6 +236,7 @@ export function getColumns(options: {
     },
     {
       id: "actions",
+      enableHiding: false,
       header: "操作",
       cell: ({ row }) => {
         const req = row.original;
