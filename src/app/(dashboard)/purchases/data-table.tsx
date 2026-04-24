@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MutableRefObject } from "react";
+import { useEffect, useState, type MutableRefObject } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -32,8 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Search, Settings2 } from "lucide-react";
 
-/** 列 id（accessorKey / id）→ 中文，用于「显示列」面板 */
-const COLUMN_LABEL_ZH: Record<string, string> = {
+const columnLabels: Record<string, string> = {
   requestNo: "单号",
   applicant: "申请人",
   itemName: "物资型号",
@@ -46,10 +45,9 @@ const COLUMN_LABEL_ZH: Record<string, string> = {
   paymentStatus: "付款状态",
   remark: "备注",
   createdAt: "申请时间",
-  actions: "操作",
 };
 
-const DEFAULT_COLUMN_VISIBILITY: VisibilityState = {
+const DEFAULT_HIDDEN: VisibilityState = {
   estimatedCost: false,
   actualCost: false,
   invoiceNo: false,
@@ -60,7 +58,6 @@ const DEFAULT_COLUMN_VISIBILITY: VisibilityState = {
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
-  /** 供父组件读取当前筛选后的 TanStack Table 实例（如导出） */
   tableRef?: MutableRefObject<TanstackTable<TData> | null>;
 }
 
@@ -79,7 +76,7 @@ export function DataTable<TData, TValue>({
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    () => ({ ...DEFAULT_COLUMN_VISIBILITY })
+    () => ({ ...DEFAULT_HIDDEN })
   );
 
   const table = useReactTable({
@@ -117,23 +114,19 @@ export function DataTable<TData, TValue>({
     }
   }
 
-  const hideableColumns = useMemo(
-    () =>
-      table
-        .getAllColumns()
-        .filter(
-          (column) =>
-            column.getCanHide() &&
-            typeof column.id === "string" &&
-            column.id.length > 0 &&
-            column.id !== "actions"
-        ),
-    [table]
-  );
+  const toggleableColumns = table
+    .getAllColumns()
+    .filter(
+      (col) =>
+        typeof col.getCanHide === "function" &&
+        col.getCanHide() &&
+        typeof col.id === "string" &&
+        col.id.length > 0
+    );
 
   return (
-    <div className="w-full min-w-0 space-y-4">
-      <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="w-full space-y-4">
+      <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs defaultValue="all" onValueChange={handleTabChange}>
           <TabsList>
             {tabFilters.map((t) => (
@@ -171,25 +164,27 @@ export function DataTable<TData, TValue>({
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuLabel>显示列</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {hideableColumns.map((column) => (
-                <DropdownMenuCheckboxItem
-                  key={column.id}
-                  checked={column.getIsVisible()}
-                  closeOnClick
-                  onCheckedChange={(checked) => {
-                    column.toggleVisibility(Boolean(checked));
-                  }}
-                >
-                  {COLUMN_LABEL_ZH[column.id] ?? column.id}
-                </DropdownMenuCheckboxItem>
-              ))}
+              {toggleableColumns.map((column) => {
+                const label = columnLabels[column.id] || column.id;
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value) =>
+                      column.toggleVisibility(!!value)
+                    }
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      <div className="w-full min-w-0 rounded-lg border bg-white">
-        <Table className="w-full min-w-full table-fixed">
+      <div className="w-full overflow-x-auto rounded-lg border bg-white">
+        <Table className="w-full">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>

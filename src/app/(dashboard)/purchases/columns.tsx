@@ -87,9 +87,9 @@ export function getColumns(options: {
     },
     {
       accessorKey: "itemName",
-      header: "物资型号",
+      header: () => <span className="whitespace-nowrap">物资型号</span>,
       cell: ({ row }) => (
-        <span className="font-mono text-sm font-medium">
+        <span className="inline-block min-w-[200px] font-mono text-sm font-medium">
           {row.getValue("itemName")}
         </span>
       ),
