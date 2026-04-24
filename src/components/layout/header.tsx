@@ -1,5 +1,6 @@
 import { Menu } from "lucide-react";
 import { SyncButton } from "@/components/SyncButton";
+import { NotificationBell } from "@/components/layout/notification-bell";
 
 export default function Header() {
   return (
@@ -14,7 +15,8 @@ export default function Header() {
 
       <div className="hidden lg:block" />
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
+        <NotificationBell />
         <SyncButton />
       </div>
     </header>

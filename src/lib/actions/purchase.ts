@@ -5,11 +5,26 @@ import { prisma } from "@/lib/prisma";
 import type { PurchaseStatus, ItemCategory, PaymentStatus } from "@prisma/client";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
+import { resolveAppBaseUrl, sendWeComMessage } from "@/lib/wecom";
 
 export async function getPurchases() {
   return prisma.purchaseRequest.findMany({
     orderBy: { createdAt: "desc" },
   });
+}
+
+/** 端内铃铛：领导看待审批数，采购员看待下单数 */
+export async function getPendingTasksCountAction(): Promise<number> {
+  const session = await getSession();
+  if (!session) return 0;
+
+  if (session.role === "BOSS" || session.role === "ADMIN") {
+    return prisma.purchaseRequest.count({ where: { status: "PENDING" } });
+  }
+  if (session.role === "PURCHASER") {
+    return prisma.purchaseRequest.count({ where: { status: "APPROVED" } });
+  }
+  return 0;
 }
 
 export async function createPurchase(data: {
@@ -28,7 +43,7 @@ export async function createPurchase(data: {
   if (data.quantity < 1) throw new Error("数量必须大于 0");
   if (data.estimatedCost < 0) throw new Error("预估金额不能为负");
 
-  await prisma.purchaseRequest.create({
+  const created = await prisma.purchaseRequest.create({
     data: {
       requestNo: `PR-${Date.now()}`,
       applicant: data.applicant.trim(),
@@ -39,9 +54,28 @@ export async function createPurchase(data: {
       link: data.link?.trim() || null,
       status: "PENDING",
     },
+    select: {
+      applicant: true,
+      itemName: true,
+      quantity: true,
+      estimatedCost: true,
+    },
   });
 
   revalidatePath("/purchases");
+
+  const base = resolveAppBaseUrl();
+  const linkLine = base
+    ? `[👉 点击前往审批](${base}/purchases)`
+    : "> 审批入口：请配置环境变量 NEXT_PUBLIC_APP_URL 后，在系统内打开「物品采购审批」";
+  const cost = created.estimatedCost.toFixed(2);
+  void sendWeComMessage(
+    `🔔 **新采购审批提醒**\n` +
+      `> 申请人：<font color="info">${created.applicant}</font>\n` +
+      `> 物资：${created.itemName} x ${created.quantity}\n` +
+      `> 预估金额：<font color="warning">${cost}元</font>\n` +
+      linkLine
+  );
 }
 
 function assertPurchaseTransition(
@@ -122,6 +156,15 @@ export async function updatePurchaseStatus(
     where: { id },
     data: { status: newStatus, remark: remark?.trim() || null },
   });
+
+  if (newStatus === "APPROVED") {
+    void sendWeComMessage(
+      `✅ **采购申请已批准**\n` +
+        `> 申请人：${row.applicant}\n` +
+        `> 物资：${row.itemName}\n` +
+        `请采购员尽快下单！`
+    );
+  }
 
   await createLog(
     session.name,
