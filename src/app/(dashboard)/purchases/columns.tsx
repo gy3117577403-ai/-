@@ -26,6 +26,7 @@ import {
   Undo2,
   FileText,
   Banknote,
+  PencilLine,
 } from "lucide-react";
 import { formatInShanghai } from "@/lib/dayjs-shanghai";
 
@@ -64,6 +65,7 @@ export function getColumns(options: {
   onWithdraw: (row: PurchaseRequest) => void;
   onApprovePayment: (row: PurchaseRequest) => void;
   onPrintContract: (row: PurchaseRequest) => void;
+  onAdminEditCost: (row: PurchaseRequest) => void;
 }): ColumnDef<PurchaseRequest>[] {
   const { role, sessionName, sessionUserId } = options;
 
@@ -345,6 +347,23 @@ export function getColumns(options: {
                   >
                     <Trash2 />
                     删除
+                  </DropdownMenuItem>
+                </>
+              )}
+              {role === "ADMIN" && (
+                <>
+                  {(showApproveReject ||
+                    showOrdered ||
+                    showReceived ||
+                    showApprovePayment ||
+                    showPrintContract ||
+                    showWithdraw ||
+                    (showDelete && !showAdminDelete)) && (
+                    <DropdownMenuSeparator />
+                  )}
+                  <DropdownMenuItem onClick={() => options.onAdminEditCost(req)}>
+                    <PencilLine />
+                    补录/修改金额
                   </DropdownMenuItem>
                 </>
               )}

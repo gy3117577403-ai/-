@@ -315,3 +315,30 @@ export async function cancelPurchaseRequestAction(id: string) {
 
   revalidatePath("/purchases");
 }
+
+/** 管理员补录/修正实际金额（不改变请购状态机） */
+export async function adminUpdatePurchaseCostAction(
+  id: string,
+  actualCost: number
+) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "ADMIN") {
+    throw new Error("Unauthorized");
+  }
+
+  const cost = Math.round(Number(actualCost) * 100) / 100;
+  if (!Number.isFinite(cost) || cost < 0) {
+    throw new Error("金额无效");
+  }
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!row) throw new Error("请购单不存在");
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { actualCost: cost },
+  });
+
+  revalidatePath("/purchases");
+}

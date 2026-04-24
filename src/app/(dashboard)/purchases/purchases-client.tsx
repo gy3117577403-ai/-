@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "./data-table";
 import { getColumns } from "./columns";
@@ -22,6 +23,7 @@ import { CreatePurchaseDialog } from "@/components/purchases/create-purchase-dia
 import { ContractPrintView } from "@/components/purchases/contract-print-view";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
+  adminUpdatePurchaseCostAction,
   approvePaymentAction,
   cancelPurchaseRequestAction,
   deletePurchaseRequest,
@@ -111,6 +113,12 @@ export function PurchasesClient({
   const [contractPrintRow, setContractPrintRow] =
     useState<PurchaseRequest | null>(null);
 
+  const [editCostOpen, setEditCostOpen] = useState(false);
+  const [editCostTarget, setEditCostTarget] =
+    useState<PurchaseRequest | null>(null);
+  const [editCostValue, setEditCostValue] = useState("");
+  const [editCostPending, startEditCostTransition] = useTransition();
+
   useEffect(() => {
     const onAfterPrint = () =>
       setContractPrintRow((prev) => (prev ? null : prev));
@@ -188,6 +196,42 @@ export function PurchasesClient({
 
   function handlePrintContract(row: PurchaseRequest) {
     setContractPrintRow(row);
+  }
+
+  function handleAdminEditCost(row: PurchaseRequest) {
+    setEditCostTarget(row);
+    setEditCostValue(
+      row.actualCost != null && Number.isFinite(row.actualCost)
+        ? String(row.actualCost)
+        : ""
+    );
+    setEditCostOpen(true);
+  }
+
+  function handleSaveAdminCost() {
+    if (!editCostTarget) return;
+    const raw = editCostValue.trim();
+    if (raw === "") {
+      toast.error("请输入实际金额");
+      return;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      toast.error("金额无效");
+      return;
+    }
+    startEditCostTransition(async () => {
+      try {
+        await adminUpdatePurchaseCostAction(editCostTarget.id, n);
+        toast.success("金额补录成功");
+        setEditCostOpen(false);
+        setEditCostTarget(null);
+        setEditCostValue("");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "保存失败";
+        toast.error(msg === "Unauthorized" ? "无权限执行此操作" : msg);
+      }
+    });
   }
 
   function handleMarkReceived(row: PurchaseRequest) {
@@ -272,6 +316,7 @@ export function PurchasesClient({
     onWithdraw: handleWithdraw,
     onApprovePayment: handleApprovePayment,
     onPrintContract: handlePrintContract,
+    onAdminEditCost: handleAdminEditCost,
   });
 
   return (
@@ -350,6 +395,62 @@ export function PurchasesClient({
           </div>
         </div>
       )}
+
+      <Dialog
+        open={editCostOpen}
+        onOpenChange={(open) => {
+          setEditCostOpen(open);
+          if (!open) {
+            setEditCostTarget(null);
+            setEditCostValue("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>补录/修改实际金额</DialogTitle>
+            <DialogDescription>
+              {editCostTarget
+                ? `仅更新「实际金额」字段，不改变审批与采购状态（单号 ${editCostTarget.requestNo}）。`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="admin-actual-cost">实际金额（元）</Label>
+            <Input
+              id="admin-actual-cost"
+              type="number"
+              step="0.01"
+              min={0}
+              placeholder={
+                editCostTarget
+                  ? `预估参考 ¥${editCostTarget.estimatedCost.toFixed(2)}`
+                  : ""
+              }
+              value={editCostValue}
+              onChange={(e) => setEditCostValue(e.target.value)}
+              disabled={editCostPending}
+            />
+          </div>
+          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditCostOpen(false)}
+              disabled={editCostPending}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSaveAdminCost}
+              disabled={editCostPending}
+            >
+              {editCostPending ? "保存中…" : "保存"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={rejectOpen}
