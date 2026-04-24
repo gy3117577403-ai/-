@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -117,9 +117,23 @@ export function DataTable<TData, TValue>({
     }
   }
 
+  const hideableColumns = useMemo(
+    () =>
+      table
+        .getAllColumns()
+        .filter(
+          (column) =>
+            column.getCanHide() &&
+            typeof column.id === "string" &&
+            column.id.length > 0 &&
+            column.id !== "actions"
+        ),
+    [table]
+  );
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="w-full min-w-0 space-y-4">
+      <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs defaultValue="all" onValueChange={handleTabChange}>
           <TabsList>
             {tabFilters.map((t) => (
@@ -157,27 +171,25 @@ export function DataTable<TData, TValue>({
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuLabel>显示列</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {table
-                .getAllColumns()
-                .filter((column) => column.getCanHide())
-                .map((column) => (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(value === true)
-                    }
-                  >
-                    {COLUMN_LABEL_ZH[column.id] ?? column.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
+              {hideableColumns.map((column) => (
+                <DropdownMenuCheckboxItem
+                  key={column.id}
+                  checked={column.getIsVisible()}
+                  closeOnClick
+                  onCheckedChange={(checked) => {
+                    column.toggleVisibility(Boolean(checked));
+                  }}
+                >
+                  {COLUMN_LABEL_ZH[column.id] ?? column.id}
+                </DropdownMenuCheckboxItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border bg-white">
-        <Table>
+      <div className="w-full min-w-0 rounded-lg border bg-white">
+        <Table className="w-full min-w-full table-fixed">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
