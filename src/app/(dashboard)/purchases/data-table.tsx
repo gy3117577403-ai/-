@@ -114,16 +114,6 @@ export function DataTable<TData, TValue>({
     }
   }
 
-  const toggleableColumns = table
-    .getAllColumns()
-    .filter(
-      (col) =>
-        typeof col.getCanHide === "function" &&
-        col.getCanHide() &&
-        typeof col.id === "string" &&
-        col.id.length > 0
-    );
-
   return (
     <div className="w-full space-y-4">
       <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -164,20 +154,38 @@ export function DataTable<TData, TValue>({
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuLabel>显示列</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {toggleableColumns.map((column) => {
-                const label = columnLabels[column.id] || column.id;
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(!!value)
-                    }
-                  >
-                    {label}
-                  </DropdownMenuCheckboxItem>
-                );
-              })}
+              {table
+                .getAllColumns()
+                .filter((column) => {
+                  return (
+                    column &&
+                    typeof column.getCanHide === "function" &&
+                    column.getCanHide()
+                  );
+                })
+                .map((column, index) => {
+                  const colId = column.id || `col_fallback_${index}`;
+                  const label = columnLabels[colId] || colId;
+
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={colId}
+                      className="capitalize"
+                      checked={
+                        typeof column.getIsVisible === "function"
+                          ? column.getIsVisible()
+                          : true
+                      }
+                      onCheckedChange={(value) => {
+                        if (typeof column.toggleVisibility === "function") {
+                          column.toggleVisibility(!!value);
+                        }
+                      }}
+                    >
+                      {label}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
