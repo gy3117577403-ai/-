@@ -8,7 +8,6 @@ import {
   flexRender,
   type ColumnDef,
   type ColumnFiltersState,
-  type VisibilityState,
   type Table as TanstackTable,
 } from "@tanstack/react-table";
 import {
@@ -21,39 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Search, Settings2 } from "lucide-react";
-
-const columnLabels: Record<string, string> = {
-  requestNo: "单号",
-  applicant: "申请人",
-  itemName: "物资型号",
-  quantity: "数量",
-  estimatedCost: "预估金额",
-  actualCost: "实际金额",
-  invoiceNo: "发票号",
-  link: "链接",
-  status: "状态",
-  paymentStatus: "付款状态",
-  remark: "备注",
-  createdAt: "申请时间",
-};
-
-const DEFAULT_HIDDEN: VisibilityState = {
-  estimatedCost: false,
-  actualCost: false,
-  invoiceNo: false,
-  paymentStatus: false,
-  remark: false,
-};
+import { Search } from "lucide-react";
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -75,17 +42,13 @@ export function DataTable<TData, TValue>({
 }: DataTableProps<TData, TValue>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    () => ({ ...DEFAULT_HIDDEN })
-  );
 
   const table = useReactTable({
     data,
     columns,
-    state: { globalFilter, columnFilters, columnVisibility },
+    state: { globalFilter, columnFilters },
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
-    onColumnVisibilityChange: setColumnVisibility,
     globalFilterFn: (row, _columnId, filterValue: string) => {
       const s = filterValue.toLowerCase();
       const no = String(row.getValue("requestNo") ?? "").toLowerCase();
@@ -127,71 +90,18 @@ export function DataTable<TData, TValue>({
           </TabsList>
         </Tabs>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              placeholder="搜索单号、申请人或物资…"
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              className="w-64 pl-9"
-            />
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 gap-1.5"
-                />
-              }
-            >
-              <Settings2 className="h-4 w-4" />
-              显示列
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel>显示列</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {table
-                .getAllColumns()
-                .filter((column) => {
-                  return (
-                    column &&
-                    typeof column.getCanHide === "function" &&
-                    column.getCanHide()
-                  );
-                })
-                .map((column, index) => {
-                  const colId = column.id || `col_fallback_${index}`;
-                  const label = columnLabels[colId] || colId;
-
-                  return (
-                    <DropdownMenuCheckboxItem
-                      key={colId}
-                      className="capitalize"
-                      checked={
-                        typeof column.getIsVisible === "function"
-                          ? column.getIsVisible()
-                          : true
-                      }
-                      onCheckedChange={(value) => {
-                        if (typeof column.toggleVisibility === "function") {
-                          column.toggleVisibility(!!value);
-                        }
-                      }}
-                    >
-                      {label}
-                    </DropdownMenuCheckboxItem>
-                  );
-                })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            placeholder="搜索单号、申请人或物资…"
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            className="w-64 pl-9"
+          />
         </div>
       </div>
 
-      <div className="w-full overflow-x-auto rounded-lg border bg-white">
+      <div className="w-full overflow-x-auto rounded-md border bg-white">
         <Table className="w-full">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
@@ -226,7 +136,7 @@ export function DataTable<TData, TValue>({
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={table.getVisibleLeafColumns().length}
+                  colSpan={columns.length}
                   className="h-24 text-center text-slate-400"
                 >
                   暂无请购记录
