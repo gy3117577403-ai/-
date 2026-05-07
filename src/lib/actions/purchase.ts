@@ -198,6 +198,33 @@ export async function createBatchPaymentRequest(
   revalidatePath("/purchases");
 }
 
+export async function markAsContracted(ids: string[]) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (
+    session.role !== "ADMIN" &&
+    session.role !== "BOSS" &&
+    session.role !== "PURCHASER"
+  ) {
+    throw new Error("无合同状态同步权限");
+  }
+
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!cleanIds.length) return;
+
+  await prisma.purchaseRequest.updateMany({
+    where: {
+      id: { in: cleanIds },
+      status: { in: ["APPROVED", "ORDERED"] },
+    },
+    data: {
+      status: "ORDERED",
+    },
+  });
+
+  revalidatePath("/purchases");
+}
+
 function assertPurchaseTransition(
   role: string,
   prev: PurchaseStatus,
