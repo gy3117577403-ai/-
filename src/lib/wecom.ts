@@ -1,6 +1,5 @@
 /**
- * 企业微信机器人 Webhook（markdown）：单次 fetch，无 mentionedMobiles、无双发。
- * 失败仅打日志，绝不抛错影响主流程。
+ * 企业微信机器人 Webhook（markdown）。发送失败只记录日志，不影响主业务流程。
  */
 
 export function resolveAppBaseUrl(): string {
@@ -8,7 +7,9 @@ export function resolveAppBaseUrl(): string {
   if (explicit) return explicit;
   const vercel = process.env.VERCEL_URL?.trim();
   if (vercel) {
-    return vercel.startsWith("http") ? vercel.replace(/\/$/, "") : `https://${vercel}`;
+    return vercel.startsWith("http")
+      ? vercel.replace(/\/$/, "")
+      : `https://${vercel}`;
   }
   return "";
 }
@@ -40,6 +41,7 @@ export function buildBatchPaymentApprovalMessage({
   totalAmount,
   supplierBank,
   supplierAccount,
+  paymentUrl,
 }: {
   supplierName: string;
   settlementType: string;
@@ -47,6 +49,7 @@ export function buildBatchPaymentApprovalMessage({
   totalAmount: number;
   supplierBank: string;
   supplierAccount: string;
+  paymentUrl: string;
 }) {
   return (
     `💰 **财务打款审批提醒**\n` +
@@ -57,7 +60,26 @@ export function buildBatchPaymentApprovalMessage({
     `🏦 **账户信息**\n` +
     `开户行：${supplierBank}\n` +
     `账号：${supplierAccount}\n\n` +
-    `<font color="info">@邓总</font> 采购发起了合并请款，请核对后审批打款！`
+    `<font color="info">@邓总</font> 采购发起了合并请款，请核对后审批打款！\n\n` +
+    `[👉 点击这里前往系统一键确认打款](${paymentUrl})`
+  );
+}
+
+export function buildBatchPaymentCompletedMessage({
+  supplierName,
+  requestCount,
+  totalAmount,
+}: {
+  supplierName: string;
+  requestCount: number;
+  totalAmount: number;
+}) {
+  return (
+    `✅ **财务打款完成通知**\n` +
+    `供应商：${supplierName}\n` +
+    `打款单数：${requestCount} 单\n` +
+    `打款总额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+    `<font color="info">@所有人</font> 老板（财务）已完成该批次单据的审批与打款，请采购知悉并及时跟进发货进度！`
   );
 }
 
@@ -83,7 +105,7 @@ export async function sendWeComMessage(markdownContent: string): Promise<void> {
     try {
       body = JSON.parse(text) as { errcode?: number; errmsg?: string };
     } catch {
-      /* 非 JSON 响应 */
+      /* non-JSON response */
     }
 
     if (!res.ok || (typeof body.errcode === "number" && body.errcode !== 0)) {

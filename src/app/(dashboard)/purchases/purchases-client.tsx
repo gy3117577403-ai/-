@@ -27,6 +27,7 @@ import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   adminUpdatePurchaseCostAction,
   cancelPurchaseRequestAction,
+  confirmBatchPaymentAction,
   deletePurchaseRequest,
   markAsPaidAction,
   updateInvoiceNoAction,
@@ -340,6 +341,26 @@ export function PurchasesClient({
     router.refresh();
   }
 
+  function handleConfirmBatchPayment(rows: PurchaseRequest[]) {
+    if (!rows.length) return;
+    if (!confirm("确认已向供方打款并更改状态吗？")) return;
+
+    startTransition(async () => {
+      try {
+        await confirmBatchPaymentAction(rows.map((row) => row.id));
+        toast.success(`已确认 ${rows.length} 单打款完成`);
+        tableRef.current?.resetRowSelection();
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "确认打款失败");
+      }
+    });
+  }
+
+  function hasPendingPaymentRows(rows: PurchaseRequest[]) {
+    return rows.some((row) => row.paymentStatus === "APPROVING");
+  }
+
   const columns = getColumns({
     role,
     sessionName,
@@ -383,6 +404,12 @@ export function PurchasesClient({
         tableRef={tableRef}
         onBatchContract={handleBatchContract}
         onBatchPayment={handleBatchPayment}
+        onConfirmBatchPayment={
+          role === "BOSS" || role === "ADMIN"
+            ? handleConfirmBatchPayment
+            : undefined
+        }
+        hasPendingPaymentRows={hasPendingPaymentRows}
       />
 
       <CreatePurchaseDialog

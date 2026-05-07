@@ -22,7 +22,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { CircleDollarSign, FileText, Search } from "lucide-react";
+import { CheckCircle2, CircleDollarSign, FileText, Search } from "lucide-react";
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -30,6 +30,8 @@ interface DataTableProps<TData, TValue> {
   tableRef?: MutableRefObject<TanstackTable<TData> | null>;
   onBatchContract?: (rows: TData[]) => void;
   onBatchPayment?: (rows: TData[]) => void;
+  onConfirmBatchPayment?: (rows: TData[]) => void;
+  hasPendingPaymentRows?: (rows: TData[]) => boolean;
 }
 
 const tabFilters: { value: string; label: string; filter: string }[] = [
@@ -45,6 +47,8 @@ export function DataTable<TData, TValue>({
   tableRef,
   onBatchContract,
   onBatchPayment,
+  onConfirmBatchPayment,
+  hasPendingPaymentRows,
 }: DataTableProps<TData, TValue>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -72,6 +76,8 @@ export function DataTable<TData, TValue>({
   const selectedRows = table
     .getFilteredSelectedRowModel()
     .rows.map((row) => row.original);
+  const hasPendingPayment =
+    selectedRows.length > 0 && (hasPendingPaymentRows?.(selectedRows) ?? false);
 
   useEffect(() => {
     if (!tableRef) return;
@@ -124,6 +130,17 @@ export function DataTable<TData, TValue>({
             >
               <CircleDollarSign className="mr-1.5 h-4 w-4" />
               申请合并请款 ({selectedRows.length})
+            </Button>
+          )}
+          {onConfirmBatchPayment && (
+            <Button
+              type="button"
+              variant={hasPendingPayment ? "default" : "outline"}
+              disabled={selectedRows.length === 0}
+              onClick={() => onConfirmBatchPayment(selectedRows)}
+            >
+              <CheckCircle2 className="mr-1.5 h-4 w-4" />
+              批量确认打款 ({selectedRows.length})
             </Button>
           )}
           <div className="relative">

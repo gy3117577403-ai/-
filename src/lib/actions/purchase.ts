@@ -6,8 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
 import {
+  buildBatchPaymentCompletedMessage,
   buildBatchPaymentApprovalMessage,
   buildBatchPurchaseApprovalMessage,
+  resolveAppBaseUrl,
   sendWeComMessage,
 } from "@/lib/wecom";
 
@@ -35,6 +37,21 @@ const LARGE_AMOUNT_THRESHOLD = 500;
 
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function resolvePaymentAmount(row: {
+  actualCost: number | null;
+  estimatedCost: number;
+}) {
+  const actual = Number(row.actualCost);
+  if (Number.isFinite(actual) && actual > 0) return roundMoney(actual);
+
+  const estimated = Number(row.estimatedCost);
+  if (Number.isFinite(estimated) && estimated > 0) {
+    return roundMoney(estimated);
+  }
+
+  return 0;
 }
 
 export async function getPurchases() {
@@ -148,6 +165,7 @@ export async function createBatchPaymentRequest(
       select: {
         id: true,
         requestNo: true,
+        actualCost: true,
         estimatedCost: true,
       },
     });
@@ -174,7 +192,12 @@ export async function createBatchPaymentRequest(
     return rows;
   });
 
-  const totalAmount = selected.reduce((sum, row) => sum + row.estimatedCost, 0);
+  const totalAmount = selected.reduce(
+    (sum, row) => sum + resolvePaymentAmount(row),
+    0
+  );
+  const baseUrl = resolveAppBaseUrl();
+  const paymentUrl = baseUrl ? `${baseUrl}/purchases` : "/purchases";
 
   await sendWeComMessage(
     buildBatchPaymentApprovalMessage({
@@ -184,6 +207,7 @@ export async function createBatchPaymentRequest(
       totalAmount,
       supplierBank,
       supplierAccount,
+      paymentUrl,
     })
   );
 
@@ -197,6 +221,72 @@ export async function createBatchPaymentRequest(
   );
 
   revalidatePath("/purchases");
+}
+
+export async function confirmBatchPaymentAction(ids: string[]) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "BOSS" && session.role !== "ADMIN") {
+    throw new Error("无确认打款权限");
+  }
+
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!cleanIds.length) throw new Error("请至少选择一张采购单");
+
+  const selected = await prisma.$transaction(async (tx) => {
+    const rows = await tx.purchaseRequest.findMany({
+      where: { id: { in: cleanIds } },
+      select: {
+        id: true,
+        requestNo: true,
+        supplierName: true,
+        actualCost: true,
+        estimatedCost: true,
+      },
+    });
+
+    if (rows.length !== cleanIds.length) {
+      throw new Error("部分采购单不存在，请刷新后重试");
+    }
+
+    const updated = await tx.purchaseRequest.updateMany({
+      where: { id: { in: cleanIds } },
+      data: { paymentStatus: "PAID" },
+    });
+
+    if (updated.count !== cleanIds.length) {
+      throw new Error("部分采购单付款状态更新失败，请刷新后重试");
+    }
+
+    return rows;
+  });
+
+  const supplierName =
+    selected.find((row) => row.supplierName?.trim())?.supplierName?.trim() ??
+    "未记录供应商";
+  const totalAmount = selected.reduce(
+    (sum, row) => sum + resolvePaymentAmount(row),
+    0
+  );
+
+  await createLog(
+    session.name,
+    "批量确认打款",
+    "物品采购",
+    `批量确认 ${cleanIds.length} 张采购单已打款：${selected
+      .map((row) => row.requestNo)
+      .join("、")}`
+  );
+
+  revalidatePath("/purchases");
+
+  void sendWeComMessage(
+    buildBatchPaymentCompletedMessage({
+      supplierName,
+      requestCount: cleanIds.length,
+      totalAmount,
+    })
+  );
 }
 
 export async function getHistoricalSupplierInfoAction(supplierName: string) {
