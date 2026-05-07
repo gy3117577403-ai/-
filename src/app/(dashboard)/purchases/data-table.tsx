@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MutableRefObject } from "react";
+import { useEffect, useState, type MutableRefObject, type ReactNode } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -22,34 +22,54 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, CircleDollarSign, FileText, Search } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDollarSign,
+  FileText,
+  Search,
+  ThumbsUp,
+  XCircle,
+} from "lucide-react";
+
+type ActiveTab =
+  | "all"
+  | "purchase_approval"
+  | "payment_approval"
+  | "pending_action"
+  | "completed";
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
   tableRef?: MutableRefObject<TanstackTable<TData> | null>;
+  globalActions?: ReactNode;
+  onBatchApprove?: (rows: TData[]) => void;
+  onBatchReject?: (rows: TData[]) => void;
   onBatchContract?: (rows: TData[]) => void;
   onBatchPayment?: (rows: TData[]) => void;
   onConfirmBatchPayment?: (rows: TData[]) => void;
-  hasPendingPaymentRows?: (rows: TData[]) => boolean;
 }
 
-const tabFilters: { value: string; label: string; filter: string }[] = [
-  { value: "all", label: "全部", filter: "" },
-  { value: "PENDING", label: "待审批", filter: "PENDING" },
-  { value: "active", label: "待采购/入库", filter: "__active__" },
-  { value: "done", label: "已完成", filter: "__done__" },
+const workspaceTabs: { value: ActiveTab; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "purchase_approval", label: "采购审批" },
+  { value: "payment_approval", label: "打款审批" },
+  { value: "pending_action", label: "待采购/入库" },
+  { value: "completed", label: "已完成" },
 ];
 
 export function DataTable<TData, TValue>({
   columns,
   data,
   tableRef,
+  globalActions,
+  onBatchApprove,
+  onBatchReject,
   onBatchContract,
   onBatchPayment,
   onConfirmBatchPayment,
-  hasPendingPaymentRows,
 }: DataTableProps<TData, TValue>) {
+  const [activeTab, setActiveTab] = useState<ActiveTab>("all");
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -76,8 +96,7 @@ export function DataTable<TData, TValue>({
   const selectedRows = table
     .getFilteredSelectedRowModel()
     .rows.map((row) => row.original);
-  const hasPendingPayment =
-    selectedRows.length > 0 && (hasPendingPaymentRows?.(selectedRows) ?? false);
+  const hasSelection = selectedRows.length > 0;
 
   useEffect(() => {
     if (!tableRef) return;
@@ -87,62 +106,123 @@ export function DataTable<TData, TValue>({
     };
   }, [table, tableRef]);
 
-  function handleTabChange(value: string) {
-    const tab = tabFilters.find((t) => t.value === value);
-    if (!tab || !tab.filter) {
+  function applyWorkspaceFilter(nextTab: ActiveTab) {
+    table.resetRowSelection();
+
+    if (nextTab === "all") {
       table.getColumn("status")?.setFilterValue(undefined);
-    } else {
-      table.getColumn("status")?.setFilterValue(tab.filter);
+      table.getColumn("paymentStatus")?.setFilterValue(undefined);
+      return;
     }
+
+    if (nextTab === "purchase_approval") {
+      table.getColumn("status")?.setFilterValue("PENDING");
+      table.getColumn("paymentStatus")?.setFilterValue(undefined);
+      return;
+    }
+
+    if (nextTab === "payment_approval") {
+      table.getColumn("status")?.setFilterValue(undefined);
+      table.getColumn("paymentStatus")?.setFilterValue("APPROVING");
+      return;
+    }
+
+    if (nextTab === "pending_action") {
+      table.getColumn("status")?.setFilterValue("__active__");
+      table.getColumn("paymentStatus")?.setFilterValue(undefined);
+      return;
+    }
+
+    table.getColumn("status")?.setFilterValue("__done__");
+    table.getColumn("paymentStatus")?.setFilterValue(undefined);
+  }
+
+  function handleTabChange(value: string) {
+    const nextTab = value as ActiveTab;
+    setActiveTab(nextTab);
+    applyWorkspaceFilter(nextTab);
   }
 
   return (
     <div className="w-full space-y-4">
-      <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Tabs defaultValue="all" onValueChange={handleTabChange}>
+      <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList>
-            {tabFilters.map((t) => (
-              <TabsTrigger key={t.value} value={t.value}>
-                {t.label}
+            {workspaceTabs.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.label}
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          {onBatchContract && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={selectedRows.length === 0}
-              onClick={() => onBatchContract(selectedRows)}
-            >
-              <FileText className="mr-1.5 h-4 w-4" />
-              生成合并合同 ({selectedRows.length})
-            </Button>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-end">
+          {activeTab === "purchase_approval" && (
+            <>
+              {onBatchApprove && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!hasSelection}
+                  onClick={() => onBatchApprove(selectedRows)}
+                >
+                  <ThumbsUp className="mr-1.5 h-4 w-4" />
+                  批量同意 ({selectedRows.length})
+                </Button>
+              )}
+              {onBatchReject && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!hasSelection}
+                  onClick={() => onBatchReject(selectedRows)}
+                >
+                  <XCircle className="mr-1.5 h-4 w-4" />
+                  批量驳回 ({selectedRows.length})
+                </Button>
+              )}
+            </>
           )}
-          {onBatchPayment && (
+
+          {activeTab === "payment_approval" && onConfirmBatchPayment && (
             <Button
               type="button"
-              variant="outline"
-              disabled={selectedRows.length === 0}
-              onClick={() => onBatchPayment(selectedRows)}
-            >
-              <CircleDollarSign className="mr-1.5 h-4 w-4" />
-              申请合并请款 ({selectedRows.length})
-            </Button>
-          )}
-          {onConfirmBatchPayment && (
-            <Button
-              type="button"
-              variant={hasPendingPayment ? "default" : "outline"}
-              disabled={selectedRows.length === 0}
+              variant="default"
+              disabled={!hasSelection}
               onClick={() => onConfirmBatchPayment(selectedRows)}
             >
               <CheckCircle2 className="mr-1.5 h-4 w-4" />
               批量确认打款 ({selectedRows.length})
             </Button>
           )}
+
+          {activeTab === "pending_action" && (
+            <>
+              {onBatchContract && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!hasSelection}
+                  onClick={() => onBatchContract(selectedRows)}
+                >
+                  <FileText className="mr-1.5 h-4 w-4" />
+                  生成合并合同 ({selectedRows.length})
+                </Button>
+              )}
+              {onBatchPayment && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!hasSelection}
+                  onClick={() => onBatchPayment(selectedRows)}
+                >
+                  <CircleDollarSign className="mr-1.5 h-4 w-4" />
+                  申请合并请款 ({selectedRows.length})
+                </Button>
+              )}
+            </>
+          )}
+
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -152,6 +232,8 @@ export function DataTable<TData, TValue>({
               className="w-64 pl-9"
             />
           </div>
+
+          {globalActions}
         </div>
       </div>
 

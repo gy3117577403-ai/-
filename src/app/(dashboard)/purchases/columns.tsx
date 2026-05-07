@@ -234,6 +234,10 @@ export function getColumns(options: {
           </Badge>
         );
       },
+      filterFn: (row, _columnId, filterValue: string) => {
+        if (!filterValue) return true;
+        return row.getValue("paymentStatus") === filterValue;
+      },
     },
     {
       accessorKey: "remark",

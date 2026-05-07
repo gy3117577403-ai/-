@@ -26,6 +26,8 @@ import { BatchPaymentModal } from "@/components/purchases/batch-payment-modal";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   adminUpdatePurchaseCostAction,
+  batchApprovePurchasesAction,
+  batchRejectPurchasesAction,
   cancelPurchaseRequestAction,
   confirmBatchPaymentAction,
   deletePurchaseRequest,
@@ -357,8 +359,36 @@ export function PurchasesClient({
     });
   }
 
-  function hasPendingPaymentRows(rows: PurchaseRequest[]) {
-    return rows.some((row) => row.paymentStatus === "APPROVING");
+  function handleBatchApprove(rows: PurchaseRequest[]) {
+    if (!rows.length) return;
+    startTransition(async () => {
+      try {
+        await batchApprovePurchasesAction(rows.map((row) => row.id));
+        toast.success(`已批量同意 ${rows.length} 张请购单`);
+        tableRef.current?.resetRowSelection();
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "批量同意失败");
+      }
+    });
+  }
+
+  function handleBatchReject(rows: PurchaseRequest[]) {
+    if (!rows.length) return;
+    const reason = prompt("请输入批量驳回原因（可留空）：") ?? "";
+    startTransition(async () => {
+      try {
+        await batchRejectPurchasesAction(
+          rows.map((row) => row.id),
+          reason
+        );
+        toast.success(`已批量驳回 ${rows.length} 张请购单`);
+        tableRef.current?.resetRowSelection();
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "批量驳回失败");
+      }
+    });
   }
 
   const columns = getColumns({
@@ -379,7 +409,7 @@ export function PurchasesClient({
 
   return (
     <>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-800">物品采购审批</h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -402,6 +432,24 @@ export function PurchasesClient({
         columns={columns}
         data={data}
         tableRef={tableRef}
+        globalActions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" type="button" onClick={handleExportExcel}>
+              <Download className="mr-1.5 h-4 w-4" />
+              导出当前数据
+            </Button>
+            <Button type="button" onClick={() => setDialogOpen(true)}>
+              <FilePlus2 className="mr-1.5 h-4 w-4" />
+              新建请购
+            </Button>
+          </div>
+        }
+        onBatchApprove={
+          role === "BOSS" || role === "ADMIN" ? handleBatchApprove : undefined
+        }
+        onBatchReject={
+          role === "BOSS" || role === "ADMIN" ? handleBatchReject : undefined
+        }
         onBatchContract={handleBatchContract}
         onBatchPayment={handleBatchPayment}
         onConfirmBatchPayment={
@@ -409,7 +457,6 @@ export function PurchasesClient({
             ? handleConfirmBatchPayment
             : undefined
         }
-        hasPendingPaymentRows={hasPendingPaymentRows}
       />
 
       <CreatePurchaseDialog

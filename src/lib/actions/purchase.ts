@@ -136,6 +136,118 @@ export async function createPurchase(data: CreatePurchaseInput) {
   return createPurchaseAction(data);
 }
 
+export async function batchApprovePurchasesAction(ids: string[]) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "BOSS" && session.role !== "ADMIN") {
+    throw new Error("无批量审批权限");
+  }
+
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!cleanIds.length) throw new Error("请至少选择一张请购单");
+
+  const selected = await prisma.$transaction(async (tx) => {
+    const rows = await tx.purchaseRequest.findMany({
+      where: { id: { in: cleanIds }, status: "PENDING" },
+      select: {
+        id: true,
+        requestNo: true,
+        applicant: true,
+        itemName: true,
+      },
+    });
+
+    if (rows.length !== cleanIds.length) {
+      throw new Error("仅待审批单据可批量同意，请刷新后重试");
+    }
+
+    const updated = await tx.purchaseRequest.updateMany({
+      where: { id: { in: cleanIds }, status: "PENDING" },
+      data: { status: "APPROVED" },
+    });
+
+    if (updated.count !== cleanIds.length) {
+      throw new Error("部分请购单审批失败，请刷新后重试");
+    }
+
+    return rows;
+  });
+
+  await createLog(
+    session.name,
+    "批量同意",
+    "物品采购",
+    `批量同意 ${cleanIds.length} 张请购单：${selected
+      .map((row) => row.requestNo)
+      .join("、")}`
+  );
+
+  revalidatePath("/purchases");
+
+  const applicants = Array.from(
+    new Set(selected.map((row) => row.applicant.trim()).filter(Boolean))
+  ).join("、");
+  void sendWeComMessage(
+    `✅ **采购审批通过通知（批量）**\n` +
+      `申请人：${applicants || "未记录"}\n` +
+      `通过单数：${cleanIds.length} 单\n` +
+      `主要物资：${selected[0]?.itemName ?? "-"} 等共 ${cleanIds.length} 项\n\n` +
+      `<font color="info">@${applicants || "相关申请人"}</font> 你提交的采购申请已审批通过，请关注后续采购进度。`
+  );
+}
+
+export async function batchRejectPurchasesAction(
+  ids: string[],
+  reason?: string
+) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "BOSS" && session.role !== "ADMIN") {
+    throw new Error("无批量驳回权限");
+  }
+
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!cleanIds.length) throw new Error("请至少选择一张请购单");
+
+  const remark = reason?.trim() || "批量驳回";
+
+  const selected = await prisma.$transaction(async (tx) => {
+    const rows = await tx.purchaseRequest.findMany({
+      where: { id: { in: cleanIds }, status: "PENDING" },
+      select: {
+        id: true,
+        requestNo: true,
+      },
+    });
+
+    if (rows.length !== cleanIds.length) {
+      throw new Error("仅待审批单据可批量驳回，请刷新后重试");
+    }
+
+    const updated = await tx.purchaseRequest.updateMany({
+      where: { id: { in: cleanIds }, status: "PENDING" },
+      data: { status: "REJECTED", remark },
+    });
+
+    if (updated.count !== cleanIds.length) {
+      throw new Error("部分请购单驳回失败，请刷新后重试");
+    }
+
+    return rows;
+  });
+
+  await createLog(
+    session.name,
+    "批量驳回",
+    "物品采购",
+    `批量驳回 ${cleanIds.length} 张请购单：${selected
+      .map((row) => row.requestNo)
+      .join("、")}；原因：${remark}`
+  );
+
+  revalidatePath("/purchases");
+}
+
 export async function createBatchPaymentRequest(
   ids: string[],
   paymentData: BatchPaymentRequestInput
