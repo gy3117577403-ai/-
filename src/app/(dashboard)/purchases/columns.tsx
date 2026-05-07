@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -72,6 +73,32 @@ export function getColumns(options: {
   const { role, sessionName, sessionUserId } = options;
 
   return [
+    {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          aria-label="选择全部"
+          checked={table.getIsAllPageRowsSelected()}
+          indeterminate={
+            table.getIsSomePageRowsSelected() &&
+            !table.getIsAllPageRowsSelected()
+          }
+          onCheckedChange={(checked) =>
+            table.toggleAllPageRowsSelected(Boolean(checked))
+          }
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          aria-label="选择行"
+          checked={row.getIsSelected()}
+          disabled={!row.getCanSelect()}
+          onCheckedChange={(checked) => row.toggleSelected(Boolean(checked))}
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
     {
       accessorKey: "requestNo",
       header: "单号",

@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "./data-table";
 import { getColumns } from "./columns";
 import { CreatePurchaseDialog } from "@/components/purchases/create-purchase-dialog";
+import { BatchContractModal } from "@/components/purchases/batch-contract-modal";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   adminUpdatePurchaseCostAction,
@@ -99,6 +100,7 @@ export function PurchasesClient({
   const router = useRouter();
   const tableRef = useRef<Table<PurchaseRequest> | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [batchContractIds, setBatchContractIds] = useState<string[]>([]);
   const [, startTransition] = useTransition();
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -323,6 +325,10 @@ export function PurchasesClient({
     }
   }
 
+  function handleBatchContract(rows: PurchaseRequest[]) {
+    setBatchContractIds(rows.map((row) => row.id));
+  }
+
   const columns = getColumns({
     role,
     sessionName,
@@ -364,11 +370,17 @@ export function PurchasesClient({
         columns={columns}
         data={data}
         tableRef={tableRef}
+        onBatchContract={handleBatchContract}
       />
 
       <CreatePurchaseDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+      />
+
+      <BatchContractModal
+        selectedIds={batchContractIds}
+        onClose={() => setBatchContractIds([])}
       />
 
       <MarkOrderedDialog

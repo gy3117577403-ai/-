@@ -2,30 +2,33 @@
 
 import { useEffect, useState, type MutableRefObject } from "react";
 import {
-  useReactTable,
+  flexRender,
   getCoreRowModel,
   getFilteredRowModel,
-  flexRender,
+  useReactTable,
   type ColumnDef,
   type ColumnFiltersState,
+  type RowSelectionState,
   type Table as TanstackTable,
 } from "@tanstack/react-table";
 import {
   Table,
-  TableHeader,
   TableBody,
-  TableRow,
-  TableHead,
   TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, Search } from "lucide-react";
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
   tableRef?: MutableRefObject<TanstackTable<TData> | null>;
+  onBatchContract?: (rows: TData[]) => void;
 }
 
 const tabFilters: { value: string; label: string; filter: string }[] = [
@@ -39,16 +42,19 @@ export function DataTable<TData, TValue>({
   columns,
   data,
   tableRef,
+  onBatchContract,
 }: DataTableProps<TData, TValue>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const table = useReactTable({
     data,
     columns,
-    state: { globalFilter, columnFilters },
+    state: { globalFilter, columnFilters, rowSelection },
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
+    onRowSelectionChange: setRowSelection,
     globalFilterFn: (row, _columnId, filterValue: string) => {
       const s = filterValue.toLowerCase();
       const no = String(row.getValue("requestNo") ?? "").toLowerCase();
@@ -58,7 +64,12 @@ export function DataTable<TData, TValue>({
     },
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    enableRowSelection: true,
   });
+
+  const selectedRows = table
+    .getFilteredSelectedRowModel()
+    .rows.map((row) => row.original);
 
   useEffect(() => {
     if (!tableRef) return;
@@ -90,14 +101,27 @@ export function DataTable<TData, TValue>({
           </TabsList>
         </Tabs>
 
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            placeholder="搜索单号、申请人或物资…"
-            value={globalFilter}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            className="w-64 pl-9"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {onBatchContract && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={selectedRows.length === 0}
+              onClick={() => onBatchContract(selectedRows)}
+            >
+              <FileText className="mr-1.5 h-4 w-4" />
+              生成合并合同 ({selectedRows.length})
+            </Button>
+          )}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              placeholder="搜索单号、申请人或物资"
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="w-64 pl-9"
+            />
+          </div>
         </div>
       </div>
 
@@ -122,7 +146,10 @@ export function DataTable<TData, TValue>({
           <TableBody>
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() ? "selected" : undefined}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(
