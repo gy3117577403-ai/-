@@ -1,11 +1,33 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { ItemCategory, PaymentStatus, PurchaseStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { PurchaseStatus, ItemCategory, PaymentStatus } from "@prisma/client";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
-import { resolveAppBaseUrl, sendWeComMessage } from "@/lib/wecom";
+import {
+  buildBatchPurchaseApprovalMessage,
+  sendWeComMessage,
+} from "@/lib/wecom";
+
+type CreatePurchaseItemInput = {
+  itemName: string;
+  quantity: number;
+  estimatedCost: number;
+  link?: string;
+};
+
+type CreatePurchaseInput = {
+  applicant: string;
+  category: ItemCategory;
+  items: CreatePurchaseItemInput[];
+};
+
+const LARGE_AMOUNT_THRESHOLD = 500;
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
 
 export async function getPurchases() {
   return prisma.purchaseRequest.findMany({
@@ -13,7 +35,6 @@ export async function getPurchases() {
   });
 }
 
-/** 端内铃铛：领导看待审批数，采购员看待下单数 */
 export async function getPendingTasksCountAction(): Promise<number> {
   const session = await getSession();
   if (!session) return 0;
@@ -27,56 +48,67 @@ export async function getPendingTasksCountAction(): Promise<number> {
   return 0;
 }
 
-export async function createPurchase(data: {
-  applicant: string;
-  itemName: string;
-  quantity: number;
-  estimatedCost: number;
-  category: ItemCategory;
-  link?: string;
-}) {
+export async function createPurchaseAction(data: CreatePurchaseInput) {
   const session = await getSession();
   if (!session) throw new Error("未登录");
 
-  if (!data.applicant.trim()) throw new Error("请填写申请人");
-  if (!data.itemName.trim()) throw new Error("请填写物资型号");
-  if (data.quantity < 1) throw new Error("数量必须大于 0");
-  if (data.estimatedCost < 0) throw new Error("预估金额不能为负");
+  const applicant = data.applicant.trim();
+  if (!applicant) throw new Error("请填写申请人");
+  if (!data.items?.length) throw new Error("请至少添加一项物资");
 
-  const created = await prisma.purchaseRequest.create({
-    data: {
-      requestNo: `PR-${Date.now()}`,
-      applicant: data.applicant.trim(),
-      itemName: data.itemName.trim(),
-      quantity: data.quantity,
-      estimatedCost: Math.round(data.estimatedCost * 100) / 100,
-      category: data.category,
-      link: data.link?.trim() || null,
-      status: "PENDING",
-    },
-    select: {
-      applicant: true,
-      itemName: true,
-      quantity: true,
-      estimatedCost: true,
-    },
+  const items = data.items.map((item, index) => {
+    const itemName = item.itemName.trim();
+    const quantity = Number(item.quantity);
+    const estimatedCost = roundMoney(Number(item.estimatedCost));
+
+    if (!itemName) throw new Error(`第 ${index + 1} 项物资名称不能为空`);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw new Error(`第 ${index + 1} 项数量必须为大于 0 的整数`);
+    }
+    if (!Number.isFinite(estimatedCost) || estimatedCost < 0) {
+      throw new Error(`第 ${index + 1} 项预估金额不能为负`);
+    }
+
+    return {
+      itemName,
+      quantity,
+      estimatedCost,
+      link: item.link?.trim() || null,
+    };
+  });
+
+  const now = Date.now();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.purchaseRequest.createMany({
+      data: items.map((item, index) => ({
+        requestNo: `PR-${now}-${String(index + 1).padStart(2, "0")}`,
+        applicant,
+        itemName: item.itemName,
+        quantity: item.quantity,
+        estimatedCost: item.estimatedCost,
+        category: data.category,
+        link: item.link,
+        status: "PENDING",
+      })),
+    });
   });
 
   revalidatePath("/purchases");
 
-  const base = resolveAppBaseUrl();
-  const linkPart = base
-    ? `[👉 点击前往审批](${base}/purchases)`
-    : "请配置 NEXT_PUBLIC_APP_URL 后在系统内打开「物品采购审批」";
-  const cost = created.estimatedCost.toFixed(2);
-  void sendWeComMessage(
-    `🔔 **新采购审批提醒**\n` +
-      `> 申请人：<font color="info">${created.applicant}</font>\n` +
-      `> 物资：${created.itemName} x ${created.quantity}\n` +
-      `> 预估金额：<font color="warning">${cost}元</font>\n\n` +
-      `<font color="info">@邓总</font> 老板有新的采购单，` +
-      linkPart
+  const totalAmount = items.reduce((sum, item) => sum + item.estimatedCost, 0);
+  await sendWeComMessage(
+    buildBatchPurchaseApprovalMessage({
+      applicant,
+      firstItemName: items[0].itemName,
+      itemCount: items.length,
+      totalAmount,
+    })
   );
+}
+
+export async function createPurchase(data: CreatePurchaseInput) {
+  return createPurchaseAction(data);
 }
 
 function assertPurchaseTransition(
@@ -117,7 +149,7 @@ export async function updatePurchaseStatus(
   if (!row) throw new Error("请购单不存在");
 
   if (newStatus === "ORDERED") {
-    throw new Error("请通过「标记已采购」表单登记实际金额与合同信息");
+    throw new Error("请通过“标记已采购”表单登记实际金额与合同信息");
   }
 
   assertPurchaseTransition(session.role, row.status, newStatus);
@@ -147,14 +179,14 @@ export async function updatePurchaseStatus(
       `📦 **到货入库提醒**\n` +
         `> 申请人：${row.applicant}\n` +
         `> 物资：${row.itemName} x ${row.quantity}\n\n` +
-        `<font color="info">@${row.applicant}</font> 你申请的物资已经入库啦，请留意！`
+        `<font color="info">@${row.applicant}</font> 你申请的物资已经入库，请留意。`
     );
 
     await createLog(
       session.name,
       "状态变更",
       "物品采购",
-      "将请购单 " + row.requestNo + " 的状态修改为: " + newStatus
+      `将请购单 ${row.requestNo} 的状态修改为: ${newStatus}`
     );
 
     return;
@@ -170,7 +202,7 @@ export async function updatePurchaseStatus(
       `✅ **采购申请已批准**\n` +
         `> 申请人：${row.applicant}\n` +
         `> 物资：${row.itemName}\n\n` +
-        `<font color="info">@王伟红</font> 单据已批，请尽快下单购买！`
+        `<font color="info">@王伟红</font> 单据已批，请尽快下单购买。`
     );
   }
 
@@ -178,15 +210,12 @@ export async function updatePurchaseStatus(
     session.name,
     "状态变更",
     "物品采购",
-    "将请购单 " + row.requestNo + " 的状态修改为: " + newStatus
+    `将请购单 ${row.requestNo} 的状态修改为: ${newStatus}`
   );
 
   revalidatePath("/purchases");
 }
 
-const LARGE_AMOUNT_THRESHOLD = 500;
-
-/** 采购员标记已采购：写入实际金额；≥500 元须合同号并进入付款待审 */
 export async function markOrderedWithDetailsAction(
   id: string,
   actualCost: number,
@@ -205,7 +234,7 @@ export async function markOrderedWithDetailsAction(
     throw new Error("仅已批准请购单可标记已采购");
   }
 
-  const cost = Math.round(Number(actualCost) * 100) / 100;
+  const cost = roundMoney(Number(actualCost));
   if (!Number.isFinite(cost) || cost < 0) {
     throw new Error("实际金额无效");
   }
@@ -217,15 +246,13 @@ export async function markOrderedWithDetailsAction(
   const trimmedInvoice = invoiceNo?.trim() || null;
 
   let paymentStatus: PaymentStatus = "UNPAID";
-  let finalContract: string | null = null;
+  let finalContract: string | null = trimmedContract;
 
   if (cost >= LARGE_AMOUNT_THRESHOLD) {
     if (!trimmedContract) {
       throw new Error("实际金额达到或超过 500 元时，必须填写合同编号");
     }
     paymentStatus = "APPROVING";
-    finalContract = trimmedContract;
-  } else {
     finalContract = trimmedContract;
   }
 
@@ -235,7 +262,7 @@ export async function markOrderedWithDetailsAction(
       status: "ORDERED",
       actualCost: cost,
       contractNo: finalContract,
-      invoiceNo: trimmedInvoice || null,
+      invoiceNo: trimmedInvoice,
       paymentStatus,
     },
   });
@@ -250,7 +277,6 @@ export async function markOrderedWithDetailsAction(
   revalidatePath("/purchases");
 }
 
-/** 财务闭环：未付/待审均可一键标记为已付款 */
 export async function markAsPaidAction(id: string) {
   const session = await getSession();
   if (!session) throw new Error("未登录");
@@ -279,7 +305,6 @@ export async function markAsPaidAction(id: string) {
   revalidatePath("/purchases");
 }
 
-/** 录入/修改发票号 */
 export async function updateInvoiceNoAction(id: string, invoiceNo: string) {
   const session = await getSession();
   if (!session) throw new Error("未登录");
@@ -306,7 +331,7 @@ export async function updateInvoiceNoAction(id: string, invoiceNo: string) {
 
   await createLog(
     session.name,
-    "发票补录",
+    "发票记录",
     "物品采购",
     `请购单 ${row.requestNo} 发票号已更新`
   );
@@ -321,7 +346,6 @@ export async function deletePurchaseRequest(id: string) {
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("请购单不存在");
 
-  // 若为管理员，可以无视状态强制删除
   if (session.role === "ADMIN") {
     if (row.status === "RECEIVED") {
       await prisma.$transaction(async (tx) => {
@@ -337,7 +361,7 @@ export async function deletePurchaseRequest(id: string) {
 
         if (adj.count === 0) {
           throw new Error(
-            "总仓无该型号或库存不足以冲减本次入库数量，删除已回滚"
+            "总库无该型号或库存不足以冲减本次入库数量，删除已回滚"
           );
         }
       });
@@ -350,7 +374,6 @@ export async function deletePurchaseRequest(id: string) {
     return;
   }
 
-  // 非管理员只能删除 PENDING
   if (row.status !== "PENDING") {
     throw new Error("仅待审批请购单可删除");
   }
@@ -367,7 +390,6 @@ export async function deletePurchaseRequest(id: string) {
   revalidatePath("/purchases");
 }
 
-/** 申请人撤回：仅 PENDING 且本人可申请 */
 export async function cancelPurchaseRequestAction(id: string) {
   const session = await getSession();
   if (!session) throw new Error("未登录");
@@ -396,13 +418,12 @@ export async function cancelPurchaseRequestAction(id: string) {
     session.name,
     "撤回申请",
     "物品采购",
-    "申请人撤回请购单 " + row.requestNo + "，状态已关闭"
+    `申请人撤回请购单 ${row.requestNo}，状态已关闭`
   );
 
   revalidatePath("/purchases");
 }
 
-/** 管理员补录/修正实际金额（不改变请购状态机） */
 export async function adminUpdatePurchaseCostAction(
   id: string,
   actualCost: number
@@ -413,7 +434,7 @@ export async function adminUpdatePurchaseCostAction(
     throw new Error("Unauthorized");
   }
 
-  const cost = Math.round(Number(actualCost) * 100) / 100;
+  const cost = roundMoney(Number(actualCost));
   if (!Number.isFinite(cost) || cost < 0) {
     throw new Error("金额无效");
   }

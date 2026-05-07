@@ -1,40 +1,56 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useForm, type Resolver } from "react-hook-form";
+import {
+  useFieldArray,
+  useForm,
+  type Resolver,
+} from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Select,
-  SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { createPurchase } from "@/lib/actions/purchase";
+import { createPurchaseAction } from "@/lib/actions/purchase";
 import { toast } from "sonner";
 import type { ItemCategory } from "@prisma/client";
 
-const schema = z.object({
-  applicant: z.string().min(1, "请填写申请人"),
+const itemSchema = z.object({
   itemName: z.string().min(1, "请填写物资型号"),
   quantity: z.coerce.number().int("必须为整数").min(1, "数量必须大于 0"),
   estimatedCost: z.coerce.number().min(0, "金额不能为负"),
   link: z.string().optional(),
 });
 
+const schema = z.object({
+  applicant: z.string().min(1, "请填写申请人"),
+  items: z.array(itemSchema).min(1, "请至少添加一项物资"),
+});
+
 type FormValues = z.output<typeof schema>;
+
+const emptyItem = {
+  itemName: "",
+  quantity: 1,
+  estimatedCost: 0,
+  link: "",
+};
 
 interface Props {
   open: boolean;
@@ -46,6 +62,7 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
   const [category, setCategory] = useState<ItemCategory>("JIG");
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -54,11 +71,13 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
     resolver: zodResolver(schema) as Resolver<FormValues>,
     defaultValues: {
       applicant: "",
-      itemName: "",
-      quantity: 1,
-      estimatedCost: 0,
-      link: "",
+      items: [emptyItem],
     },
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "items",
   });
 
   useEffect(() => {
@@ -67,10 +86,7 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
       setCategory("JIG");
       reset({
         applicant: "",
-        itemName: "",
-        quantity: 1,
-        estimatedCost: 0,
-        link: "",
+        items: [emptyItem],
       });
     });
   }, [open, reset]);
@@ -78,8 +94,12 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
   function onSubmit(values: FormValues) {
     startTransition(async () => {
       try {
-        await createPurchase({ ...values, category });
-        toast.success("请购单已提交，等待审批");
+        await createPurchaseAction({
+          applicant: values.applicant,
+          category,
+          items: values.items,
+        });
+        toast.success(`已提交 ${values.items.length} 项请购，等待审批`);
         onOpenChange(false);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "提交失败");
@@ -89,10 +109,12 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>新建请购申请</DialogTitle>
-          <DialogDescription>填写物资信息后提交审批</DialogDescription>
+          <DialogDescription>
+            批量添加多个物资后一次提交，系统只发送一条合并审批通知。
+          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -134,69 +156,117 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="itemName">物资型号</Label>
-            <Input
-              id="itemName"
-              placeholder="例: DF62S-10EP-2.2C"
-              {...register("itemName")}
-              aria-invalid={!!errors.itemName}
-            />
-            {errors.itemName && (
-              <p className="text-xs text-destructive">
-                {errors.itemName.message}
-              </p>
-            )}
+          <div className="flex items-center justify-between">
+            <Label>物资明细</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => append(emptyItem)}
+              disabled={isPending}
+            >
+              ➕ 添加项
+            </Button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="quantity">数量</Label>
-              <Input
-                id="quantity"
-                type="number"
-                min={1}
-                placeholder="1"
-                {...register("quantity")}
-                aria-invalid={!!errors.quantity}
-              />
-              {errors.quantity && (
-                <p className="text-xs text-destructive">
-                  {errors.quantity.message}
-                </p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="estimatedCost">预估金额 (元)</Label>
-              <Input
-                id="estimatedCost"
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder="0.00"
-                {...register("estimatedCost")}
-                aria-invalid={!!errors.estimatedCost}
-              />
-              {errors.estimatedCost && (
-                <p className="text-xs text-destructive">
-                  {errors.estimatedCost.message}
-                </p>
-              )}
-            </div>
-          </div>
+          <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+            {fields.map((field, index) => {
+              const itemErrors = errors.items?.[index];
 
-          <div className="space-y-1.5">
-            <Label htmlFor="link">购买链接 (选填)</Label>
-            <Input
-              id="link"
-              placeholder="https://..."
-              {...register("link")}
-            />
+              return (
+                <div
+                  key={field.id}
+                  className="rounded-lg border bg-background p-3"
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      物资 {index + 1}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => remove(index)}
+                      disabled={isPending || fields.length === 1}
+                      aria-label="删除物资项"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_96px_128px]">
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`item-${index}-name`}>物资型号</Label>
+                      <Input
+                        id={`item-${index}-name`}
+                        placeholder="例：DF62S-10EP-2.2C"
+                        {...register(`items.${index}.itemName`)}
+                        aria-invalid={!!itemErrors?.itemName}
+                      />
+                      {itemErrors?.itemName && (
+                        <p className="text-xs text-destructive">
+                          {itemErrors.itemName.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`item-${index}-quantity`}>数量</Label>
+                      <Input
+                        id={`item-${index}-quantity`}
+                        type="number"
+                        min={1}
+                        placeholder="1"
+                        {...register(`items.${index}.quantity`)}
+                        aria-invalid={!!itemErrors?.quantity}
+                      />
+                      {itemErrors?.quantity && (
+                        <p className="text-xs text-destructive">
+                          {itemErrors.quantity.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`item-${index}-cost`}>
+                        预估金额 (元)
+                      </Label>
+                      <Input
+                        id={`item-${index}-cost`}
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder="0.00"
+                        {...register(`items.${index}.estimatedCost`)}
+                        aria-invalid={!!itemErrors?.estimatedCost}
+                      />
+                      {itemErrors?.estimatedCost && (
+                        <p className="text-xs text-destructive">
+                          {itemErrors.estimatedCost.message}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 space-y-1.5">
+                    <Label htmlFor={`item-${index}-link`}>
+                      购买链接 (选填)
+                    </Label>
+                    <Input
+                      id={`item-${index}-link`}
+                      placeholder="https://..."
+                      {...register(`items.${index}.link`)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </form>
 
         <DialogFooter>
           <Button
+            type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isPending}
@@ -204,7 +274,7 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
             取消
           </Button>
           <Button type="submit" form="purchase-form" disabled={isPending}>
-            {isPending ? "提交中…" : "提交申请"}
+            {isPending ? "提交中..." : "提交请购"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -13,6 +13,26 @@ export function resolveAppBaseUrl(): string {
   return "";
 }
 
+export function buildBatchPurchaseApprovalMessage({
+  applicant,
+  firstItemName,
+  itemCount,
+  totalAmount,
+}: {
+  applicant: string;
+  firstItemName: string;
+  itemCount: number;
+  totalAmount: number;
+}) {
+  return (
+    `🔔 **新采购审批 (批量提交)**\n` +
+    `申请人：${applicant}\n` +
+    `主要物资：${firstItemName} 等共 ${itemCount} 项\n` +
+    `合计预估金额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+    `<font color="info">@邓总</font> 老板，这是本次批量采购的汇总，请点击前往系统查看明细并一键审批。`
+  );
+}
+
 export async function sendWeComMessage(markdownContent: string): Promise<void> {
   const url = process.env.WECOM_WEBHOOK_URL?.trim();
   if (!url) {
