@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createBatchPaymentRequest } from "@/lib/actions/purchase";
+import {
+  createBatchPaymentRequest,
+  getHistoricalSupplierInfoAction,
+  getHistoricalSupplierNamesAction,
+} from "@/lib/actions/purchase";
 import { toast } from "sonner";
 
 type BatchPaymentModalProps = {
@@ -27,6 +31,12 @@ type BatchPaymentModalProps = {
   onClose: () => void;
   onSuccess: () => void;
 };
+
+type AutoFilledInfo = {
+  supplierName: string;
+  supplierAccount: string;
+  supplierBank: string;
+} | null;
 
 export function BatchPaymentModal({
   selectedIds,
@@ -37,14 +47,81 @@ export function BatchPaymentModal({
   const [supplierName, setSupplierName] = useState("");
   const [supplierAccount, setSupplierAccount] = useState("");
   const [supplierBank, setSupplierBank] = useState("");
+  const [supplierNames, setSupplierNames] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
+  const [isLookupPending, startLookupTransition] = useTransition();
+  const autoFilledRef = useRef<AutoFilledInfo>(null);
+  const supplierAccountRef = useRef("");
+  const supplierBankRef = useRef("");
 
-  const canSubmit =
+  const canSubmit = Boolean(
     selectedIds.length > 0 &&
-    settlementType.trim() &&
-    supplierName.trim() &&
-    supplierAccount.trim() &&
-    supplierBank.trim();
+      settlementType.trim() &&
+      supplierName.trim() &&
+      supplierAccount.trim() &&
+      supplierBank.trim()
+  );
+
+  useEffect(() => {
+    if (selectedIds.length === 0) return;
+
+    startLookupTransition(async () => {
+      try {
+        const names = await getHistoricalSupplierNamesAction();
+        setSupplierNames(names);
+      } catch {
+        setSupplierNames([]);
+      }
+    });
+  }, [selectedIds.length]);
+
+  useEffect(() => {
+    supplierAccountRef.current = supplierAccount;
+  }, [supplierAccount]);
+
+  useEffect(() => {
+    supplierBankRef.current = supplierBank;
+  }, [supplierBank]);
+
+  useEffect(() => {
+    const name = supplierName.trim();
+    if (!name) return;
+
+    const timer = window.setTimeout(() => {
+      startLookupTransition(async () => {
+        try {
+          const info = await getHistoricalSupplierInfoAction(name);
+          if (!info) return;
+
+          const previous = autoFilledRef.current;
+          const currentAccount = supplierAccountRef.current;
+          const currentBank = supplierBankRef.current;
+          const canReplaceAccount =
+            !currentAccount.trim() ||
+            currentAccount === previous?.supplierAccount;
+          const canReplaceBank =
+            !currentBank.trim() || currentBank === previous?.supplierBank;
+
+          if (canReplaceAccount) setSupplierAccount(info.supplierAccount);
+          if (canReplaceBank) setSupplierBank(info.supplierBank);
+
+          autoFilledRef.current = {
+            supplierName: name,
+            supplierAccount: info.supplierAccount,
+            supplierBank: info.supplierBank,
+          };
+
+          if (canReplaceAccount || canReplaceBank) {
+            toast.success("已自动带出历史账户信息");
+          }
+        } catch {
+          // Historical lookup is a convenience; never block payment entry.
+        }
+      });
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [supplierName]);
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -97,11 +174,20 @@ export function BatchPaymentModal({
             <Label htmlFor="batch-payment-supplier">供方名称</Label>
             <Input
               id="batch-payment-supplier"
+              list="batch-payment-supplier-list"
               value={supplierName}
               onChange={(event) => setSupplierName(event.target.value)}
               placeholder="请输入供应商名称"
               disabled={isPending}
             />
+            <datalist id="batch-payment-supplier-list">
+              {supplierNames.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            {isLookupPending && (
+              <p className="text-xs text-slate-400">正在查询历史账户信息...</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -136,7 +222,11 @@ export function BatchPaymentModal({
           >
             取消
           </Button>
-          <Button type="button" onClick={handleSubmit} disabled={!canSubmit || isPending}>
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!canSubmit || isPending}
+          >
             {isPending ? "提交中..." : "提交请款"}
           </Button>
         </DialogFooter>

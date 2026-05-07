@@ -161,6 +161,7 @@ export async function createBatchPaymentRequest(
       data: {
         paymentStatus: "APPROVING",
         settlementType,
+        supplierName,
         supplierAccount,
         supplierBank,
       },
@@ -196,6 +197,59 @@ export async function createBatchPaymentRequest(
   );
 
   revalidatePath("/purchases");
+}
+
+export async function getHistoricalSupplierInfoAction(supplierName: string) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+
+  const name = supplierName.trim();
+  if (!name) return null;
+
+  const record = await prisma.purchaseRequest.findFirst({
+    where: {
+      supplierName: name,
+      supplierAccount: { not: null },
+      supplierBank: { not: null },
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      supplierAccount: true,
+      supplierBank: true,
+    },
+  });
+
+  if (!record?.supplierAccount?.trim() || !record.supplierBank?.trim()) {
+    return null;
+  }
+
+  return {
+    supplierAccount: record.supplierAccount,
+    supplierBank: record.supplierBank,
+  };
+}
+
+export async function getHistoricalSupplierNamesAction() {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+
+  const records = await prisma.purchaseRequest.findMany({
+    where: {
+      supplierName: { not: null },
+      supplierAccount: { not: null },
+      supplierBank: { not: null },
+    },
+    orderBy: { updatedAt: "desc" },
+    distinct: ["supplierName"],
+    select: {
+      supplierName: true,
+    },
+    take: 50,
+  });
+
+  return records
+    .map((record) => record.supplierName?.trim())
+    .filter((name): name is string => Boolean(name));
 }
 
 export async function markAsContracted(ids: string[]) {
