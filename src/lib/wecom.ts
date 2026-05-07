@@ -33,6 +33,34 @@ export function buildBatchPurchaseApprovalMessage({
   );
 }
 
+export function buildBatchPaymentApprovalMessage({
+  supplierName,
+  settlementType,
+  requestCount,
+  totalAmount,
+  supplierBank,
+  supplierAccount,
+}: {
+  supplierName: string;
+  settlementType: string;
+  requestCount: number;
+  totalAmount: number;
+  supplierBank: string;
+  supplierAccount: string;
+}) {
+  return (
+    `💰 **财务打款审批提醒**\n` +
+    `供应商：${supplierName}\n` +
+    `结算方式：${settlementType}\n` +
+    `请款单数：${requestCount} 单\n` +
+    `请款总额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+    `🏦 **账户信息**\n` +
+    `开户行：${supplierBank}\n` +
+    `账号：${supplierAccount}\n\n` +
+    `<font color="info">@邓总</font> 采购发起了合并请款，请核对后审批打款！`
+  );
+}
+
 export async function sendWeComMessage(markdownContent: string): Promise<void> {
   const url = process.env.WECOM_WEBHOOK_URL?.trim();
   if (!url) {

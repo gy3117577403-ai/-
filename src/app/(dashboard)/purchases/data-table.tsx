@@ -22,13 +22,14 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileText, Search } from "lucide-react";
+import { CircleDollarSign, FileText, Search } from "lucide-react";
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
   tableRef?: MutableRefObject<TanstackTable<TData> | null>;
   onBatchContract?: (rows: TData[]) => void;
+  onBatchPayment?: (rows: TData[]) => void;
 }
 
 const tabFilters: { value: string; label: string; filter: string }[] = [
@@ -43,6 +44,7 @@ export function DataTable<TData, TValue>({
   data,
   tableRef,
   onBatchContract,
+  onBatchPayment,
 }: DataTableProps<TData, TValue>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -111,6 +113,17 @@ export function DataTable<TData, TValue>({
             >
               <FileText className="mr-1.5 h-4 w-4" />
               生成合并合同 ({selectedRows.length})
+            </Button>
+          )}
+          {onBatchPayment && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={selectedRows.length === 0}
+              onClick={() => onBatchPayment(selectedRows)}
+            >
+              <CircleDollarSign className="mr-1.5 h-4 w-4" />
+              申请合并请款 ({selectedRows.length})
             </Button>
           )}
           <div className="relative">

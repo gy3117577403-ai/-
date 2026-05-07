@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
 import {
+  buildBatchPaymentApprovalMessage,
   buildBatchPurchaseApprovalMessage,
   sendWeComMessage,
 } from "@/lib/wecom";
@@ -21,6 +22,13 @@ type CreatePurchaseInput = {
   applicant: string;
   category: ItemCategory;
   items: CreatePurchaseItemInput[];
+};
+
+type BatchPaymentRequestInput = {
+  settlementType: string;
+  supplierName: string;
+  supplierAccount: string;
+  supplierBank: string;
 };
 
 const LARGE_AMOUNT_THRESHOLD = 500;
@@ -109,6 +117,85 @@ export async function createPurchaseAction(data: CreatePurchaseInput) {
 
 export async function createPurchase(data: CreatePurchaseInput) {
   return createPurchaseAction(data);
+}
+
+export async function createBatchPaymentRequest(
+  ids: string[],
+  paymentData: BatchPaymentRequestInput
+) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "PURCHASER" && session.role !== "ADMIN") {
+    throw new Error("无合并请款权限");
+  }
+
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!cleanIds.length) throw new Error("请至少选择一张采购单");
+
+  const settlementType = paymentData.settlementType.trim();
+  const supplierName = paymentData.supplierName.trim();
+  const supplierAccount = paymentData.supplierAccount.trim();
+  const supplierBank = paymentData.supplierBank.trim();
+
+  if (!settlementType) throw new Error("请选择结算方式");
+  if (!supplierName) throw new Error("请填写供方名称");
+  if (!supplierAccount) throw new Error("请填写对公账号");
+  if (!supplierBank) throw new Error("请填写开户行");
+
+  const selected = await prisma.$transaction(async (tx) => {
+    const rows = await tx.purchaseRequest.findMany({
+      where: { id: { in: cleanIds } },
+      select: {
+        id: true,
+        requestNo: true,
+        estimatedCost: true,
+      },
+    });
+
+    if (rows.length !== cleanIds.length) {
+      throw new Error("部分采购单不存在，请刷新后重试");
+    }
+
+    const updated = await tx.purchaseRequest.updateMany({
+      where: { id: { in: cleanIds } },
+      data: {
+        paymentStatus: "APPROVING",
+        settlementType,
+        supplierAccount,
+        supplierBank,
+      },
+    });
+
+    if (updated.count !== cleanIds.length) {
+      throw new Error("部分采购单更新失败，请刷新后重试");
+    }
+
+    return rows;
+  });
+
+  const totalAmount = selected.reduce((sum, row) => sum + row.estimatedCost, 0);
+
+  await sendWeComMessage(
+    buildBatchPaymentApprovalMessage({
+      supplierName,
+      settlementType,
+      requestCount: cleanIds.length,
+      totalAmount,
+      supplierBank,
+      supplierAccount,
+    })
+  );
+
+  await createLog(
+    session.name,
+    "合并请款",
+    "物品采购",
+    `合并发起 ${cleanIds.length} 张采购单请款：${selected
+      .map((row) => row.requestNo)
+      .join("、")}`
+  );
+
+  revalidatePath("/purchases");
 }
 
 function assertPurchaseTransition(

@@ -162,6 +162,9 @@ model PurchaseRequest {
   contractNo      String? // 合同编号（大额必填）
   invoiceNo       String? // 发票号
   paymentStatus   PaymentStatus   @default(UNPAID)
+  settlementType   String? // 结算方式（如：对公现结、月结）
+  supplierAccount  String? // 供方对公账号
+  supplierBank     String? // 供方开户行
   category        ItemCategory    @default(JIG) // 物资分类
   status          PurchaseStatus  @default(PENDING)
   remark          String? // 驳回理由或备注

@@ -22,6 +22,7 @@ import { DataTable } from "./data-table";
 import { getColumns } from "./columns";
 import { CreatePurchaseDialog } from "@/components/purchases/create-purchase-dialog";
 import { BatchContractModal } from "@/components/purchases/batch-contract-modal";
+import { BatchPaymentModal } from "@/components/purchases/batch-payment-modal";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   adminUpdatePurchaseCostAction,
@@ -101,6 +102,7 @@ export function PurchasesClient({
   const tableRef = useRef<Table<PurchaseRequest> | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [batchContractIds, setBatchContractIds] = useState<string[]>([]);
+  const [batchPaymentIds, setBatchPaymentIds] = useState<string[]>([]);
   const [, startTransition] = useTransition();
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -329,6 +331,15 @@ export function PurchasesClient({
     setBatchContractIds(rows.map((row) => row.id));
   }
 
+  function handleBatchPayment(rows: PurchaseRequest[]) {
+    setBatchPaymentIds(rows.map((row) => row.id));
+  }
+
+  function handleBatchPaymentSuccess() {
+    tableRef.current?.resetRowSelection();
+    router.refresh();
+  }
+
   const columns = getColumns({
     role,
     sessionName,
@@ -371,6 +382,7 @@ export function PurchasesClient({
         data={data}
         tableRef={tableRef}
         onBatchContract={handleBatchContract}
+        onBatchPayment={handleBatchPayment}
       />
 
       <CreatePurchaseDialog
@@ -381,6 +393,12 @@ export function PurchasesClient({
       <BatchContractModal
         selectedIds={batchContractIds}
         onClose={() => setBatchContractIds([])}
+      />
+
+      <BatchPaymentModal
+        selectedIds={batchPaymentIds}
+        onClose={() => setBatchPaymentIds([])}
+        onSuccess={handleBatchPaymentSuccess}
       />
 
       <MarkOrderedDialog
