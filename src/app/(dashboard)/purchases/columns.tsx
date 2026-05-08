@@ -11,24 +11,24 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
-  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  MoreHorizontal,
   Check,
-  X,
-  ShoppingCart,
-  PackageCheck,
+  CircleCheck,
   ExternalLink,
+  FileText,
+  MoreHorizontal,
+  PackageCheck,
+  PencilLine,
+  Receipt,
+  ShoppingCart,
   Trash2,
   Undo2,
-  FileText,
-  PencilLine,
-  CircleCheck,
-  Receipt,
+  X,
 } from "lucide-react";
 import { formatInShanghai } from "@/lib/dayjs-shanghai";
 
@@ -49,7 +49,9 @@ const paymentBadge: Record<
   { label: string; className: string }
 > = {
   UNPAID: { label: "未付款", className: "bg-slate-500/80 text-white" },
-  APPROVING: { label: "待付款审批", className: "bg-orange-500/90 text-white" },
+  APPROVING: { label: "待打款审批", className: "bg-orange-500/90 text-white" },
+  PENDING_FUNDS: { label: "待打款审批", className: "bg-orange-500/90 text-white" },
+  APPROVED_FUNDS: { label: "待财务打款", className: "bg-cyan-600/90 text-white" },
   PAID: { label: "已付款", className: "bg-emerald-600/90 text-white" },
 };
 
@@ -108,13 +110,10 @@ export function getColumns(options: {
         </span>
       ),
     },
-    {
-      accessorKey: "applicant",
-      header: "申请人",
-    },
+    { accessorKey: "applicant", header: "申请人" },
     {
       accessorKey: "itemName",
-      header: () => <span className="whitespace-nowrap">物资型号</span>,
+      header: () => <span className="whitespace-nowrap">物资名称</span>,
       cell: ({ row }) => (
         <span className="inline-block min-w-[200px] font-mono text-sm font-medium">
           {row.getValue("itemName")}
@@ -133,45 +132,118 @@ export function getColumns(options: {
     {
       accessorKey: "estimatedCost",
       header: "预估金额",
+      enableSorting: true,
       cell: ({ row }) => (
         <span className="tabular-nums">
-          ¥{(row.getValue("estimatedCost") as number).toFixed(2)}
+          ￥{(row.getValue("estimatedCost") as number).toFixed(2)}
         </span>
       ),
     },
     {
       accessorKey: "actualCost",
       header: "实际金额",
+      enableSorting: true,
       cell: ({ row }) => {
-        const v = row.getValue("actualCost") as number | null;
-        if (v != null && Number.isFinite(v)) {
-          return (
-            <span className="tabular-nums font-medium text-slate-800">
-              ¥{v.toFixed(2)}
-            </span>
-          );
+        const value = row.getValue("actualCost") as number | null;
+        return value != null && Number.isFinite(value) ? (
+          <span className="tabular-nums font-medium text-slate-800">
+            ￥{value.toFixed(2)}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">-</span>
+        );
+      },
+    },
+    {
+      accessorKey: "supplierName",
+      header: "供应商",
+      enableSorting: true,
+      enableColumnFilter: true,
+      cell: ({ row }) => {
+        const value = row.getValue("supplierName") as string | null;
+        return value?.trim() ? (
+          <span className="max-w-[160px] truncate text-sm text-slate-700" title={value}>
+            {value}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">-</span>
+        );
+      },
+      filterFn: (row, _columnId, filterValue: string) => {
+        const value = filterValue.trim().toLowerCase();
+        if (!value) return true;
+        return String(row.getValue("supplierName") ?? "")
+          .toLowerCase()
+          .includes(value);
+      },
+    },
+    {
+      accessorKey: "settlementType",
+      header: "结算方式",
+      enableColumnFilter: true,
+      cell: ({ row }) => {
+        const value = row.getValue("settlementType") as string | null;
+        return value?.trim() ? value : <span className="text-xs text-slate-400">-</span>;
+      },
+      filterFn: (row, _columnId, filterValue: string) => {
+        if (!filterValue) return true;
+        return row.getValue("settlementType") === filterValue;
+      },
+    },
+    {
+      accessorKey: "paymentStatus",
+      header: "付款状态",
+      cell: ({ row }) => {
+        const status = row.getValue("paymentStatus") as PaymentStatus;
+        const cfg = paymentBadge[status];
+        return (
+          <Badge variant="default" className={cfg.className}>
+            {cfg.label}
+          </Badge>
+        );
+      },
+      filterFn: (row, _columnId, filterValue: string) => {
+        if (!filterValue) return true;
+        if (filterValue === "__pending_funds__") {
+          const status = row.getValue("paymentStatus");
+          return status === "PENDING_FUNDS" || status === "APPROVING";
         }
-        return <span className="text-xs text-slate-400">—</span>;
+        if (filterValue === "__finance__") {
+          const status = row.getValue("paymentStatus");
+          return status === "APPROVED_FUNDS" || status === "PAID";
+        }
+        return row.getValue("paymentStatus") === filterValue;
+      },
+    },
+    {
+      accessorKey: "paymentApprovedAt",
+      header: "打款审批时间",
+      enableSorting: true,
+      cell: ({ row }) => {
+        const value = row.getValue("paymentApprovedAt") as Date | string | null;
+        return value ? (
+          formatInShanghai(value, "YYYY-MM-DD HH:mm")
+        ) : (
+          <span className="text-xs text-slate-400">-</span>
+        );
+      },
+      filterFn: (row, _columnId, filterValue: string) => {
+        if (!filterValue) return true;
+        const value = row.getValue("paymentApprovedAt") as Date | string | null;
+        return value ? formatInShanghai(value, "YYYY-MM-DD") === filterValue : false;
       },
     },
     {
       accessorKey: "invoiceNo",
       header: "发票号",
       cell: ({ row }) => {
-        const req = row.original;
-        if (req.status !== "ORDERED" && req.status !== "RECEIVED") {
-          return <span className="text-xs text-slate-400">—</span>;
-        }
-        const inv = row.getValue("invoiceNo") as string | null;
-        return inv?.trim() ? (
-          <span
-            className="max-w-[140px] truncate font-mono text-xs text-slate-700"
-            title={inv}
-          >
-            {inv}
+        const value = row.getValue("invoiceNo") as string | null;
+        return value?.trim() ? (
+          <span className="max-w-[140px] truncate font-mono text-xs text-slate-700" title={value}>
+            {value}
           </span>
         ) : (
-          <span className="text-xs text-slate-400">未登记</span>
+          <span className="text-xs text-slate-400">-</span>
         );
       },
     },
@@ -208,48 +280,28 @@ export function getColumns(options: {
       },
       filterFn: (row, _columnId, filterValue: string) => {
         if (!filterValue) return true;
-        const s = row.getValue("status") as string;
-        if (filterValue === "__active__")
-          return s === "APPROVED" || s === "ORDERED";
-        if (filterValue === "__done__")
-          return (
-            s === "RECEIVED" || s === "REJECTED" || s === "CANCELLED"
-          );
-        return s === filterValue;
-      },
-    },
-    {
-      accessorKey: "paymentStatus",
-      header: "付款状态",
-      cell: ({ row }) => {
-        const req = row.original;
-        if (req.status !== "ORDERED" && req.status !== "RECEIVED") {
-          return <span className="text-xs text-slate-400">—</span>;
+        const status = row.getValue("status") as string;
+        if (filterValue === "__active__") {
+          return status === "APPROVED" || status === "ORDERED";
         }
-        const ps = row.getValue("paymentStatus") as PaymentStatus;
-        const cfg = paymentBadge[ps];
-        return (
-          <Badge variant="default" className={cfg.className}>
-            {cfg.label}
-          </Badge>
-        );
-      },
-      filterFn: (row, _columnId, filterValue: string) => {
-        if (!filterValue) return true;
-        return row.getValue("paymentStatus") === filterValue;
+        if (filterValue === "__done__") {
+          return (
+            status === "RECEIVED" ||
+            status === "REJECTED" ||
+            status === "CANCELLED"
+          );
+        }
+        return status === filterValue;
       },
     },
     {
       accessorKey: "remark",
       header: "备注",
       cell: ({ row }) => {
-        const val = row.getValue("remark") as string | null;
-        return val ? (
-          <span
-            className="max-w-[160px] truncate text-xs text-slate-500"
-            title={val}
-          >
-            {val}
+        const value = row.getValue("remark") as string | null;
+        return value ? (
+          <span className="max-w-[160px] truncate text-xs text-slate-500" title={value}>
+            {value}
           </span>
         ) : (
           <span className="text-slate-400">-</span>
@@ -282,9 +334,7 @@ export function getColumns(options: {
         const canApprove = role === "BOSS" || role === "ADMIN";
         const canPurchaser = role === "PURCHASER" || role === "ADMIN";
         const isEngineer = role === "ENGINEER";
-
-        const showApproveReject =
-          canApprove && req.status === "PENDING";
+        const showApproveReject = canApprove && req.status === "PENDING";
         const showOrdered = canPurchaser && req.status === "APPROVED";
         const showReceived = canPurchaser && req.status === "ORDERED";
         const showMarkAsPaid =
@@ -294,19 +344,17 @@ export function getColumns(options: {
         const showEditInvoice =
           (role === "ADMIN" || role === "BOSS" || role === "PURCHASER") &&
           (req.status === "ORDERED" || req.status === "RECEIVED");
-        const actual = req.actualCost;
         const showPrintContract =
           (canPurchaser || canApprove) &&
           req.status === "ORDERED" &&
-          actual != null &&
-          Number.isFinite(actual) &&
-          actual >= LARGE_AMOUNT;
+          req.actualCost != null &&
+          Number.isFinite(req.actualCost) &&
+          req.actualCost >= LARGE_AMOUNT;
         const showAdminDelete = role === "ADMIN";
         const showDelete =
           req.status === "PENDING" &&
           isEngineer &&
           req.applicant.trim() === sessionName.trim();
-
         const applicantTrim = req.applicant.trim();
         const showWithdraw =
           req.status === "PENDING" &&
@@ -322,7 +370,8 @@ export function getColumns(options: {
           !showPrintContract &&
           !showDelete &&
           !showAdminDelete &&
-          !showWithdraw
+          !showWithdraw &&
+          role !== "ADMIN"
         ) {
           return <span className="text-xs text-slate-400">-</span>;
         }
@@ -355,20 +404,18 @@ export function getColumns(options: {
               {showOrdered && (
                 <DropdownMenuItem onClick={() => options.onMarkOrdered(req)}>
                   <ShoppingCart />
-                  已采购
+                  标记已采购
                 </DropdownMenuItem>
               )}
               {showReceived && (
                 <DropdownMenuItem onClick={() => options.onMarkReceived(req)}>
                   <PackageCheck />
-                  已入库
+                  确认入库
                 </DropdownMenuItem>
               )}
               {showMarkAsPaid && (
                 <>
-                  {(showApproveReject || showOrdered || showReceived) && (
-                    <DropdownMenuSeparator />
-                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => options.onMarkAsPaid(req)}>
                     <CircleCheck />
                     标记为已付款
@@ -377,10 +424,7 @@ export function getColumns(options: {
               )}
               {showEditInvoice && (
                 <>
-                  {(showApproveReject ||
-                    showOrdered ||
-                    showReceived ||
-                    showMarkAsPaid) && <DropdownMenuSeparator />}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => options.onEditInvoice(req)}>
                     <Receipt />
                     录入/修改发票
@@ -389,11 +433,7 @@ export function getColumns(options: {
               )}
               {showPrintContract && (
                 <>
-                  {(showApproveReject ||
-                    showOrdered ||
-                    showReceived ||
-                    showMarkAsPaid ||
-                    showEditInvoice) && <DropdownMenuSeparator />}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => options.onPrintContract(req)}>
                     <FileText />
                     生成合同
@@ -402,14 +442,7 @@ export function getColumns(options: {
               )}
               {showWithdraw && (
                 <>
-                  {(showApproveReject ||
-                    showOrdered ||
-                    showReceived ||
-                    showMarkAsPaid ||
-                    showEditInvoice ||
-                    showPrintContract) && (
-                    <DropdownMenuSeparator />
-                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => options.onWithdraw(req)}>
                     <Undo2 />
                     撤回申请
@@ -418,15 +451,7 @@ export function getColumns(options: {
               )}
               {showDelete && !showAdminDelete && (
                 <>
-                  {(showApproveReject ||
-                    showOrdered ||
-                    showReceived ||
-                    showMarkAsPaid ||
-                    showEditInvoice ||
-                    showPrintContract ||
-                    showWithdraw) && (
-                    <DropdownMenuSeparator />
-                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     variant="destructive"
                     onClick={() => options.onDelete(req)}
@@ -438,16 +463,7 @@ export function getColumns(options: {
               )}
               {role === "ADMIN" && (
                 <>
-                  {(showApproveReject ||
-                    showOrdered ||
-                    showReceived ||
-                    showMarkAsPaid ||
-                    showEditInvoice ||
-                    showPrintContract ||
-                    showWithdraw ||
-                    (showDelete && !showAdminDelete)) && (
-                    <DropdownMenuSeparator />
-                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => options.onAdminEditCost(req)}>
                     <PencilLine />
                     补录/修改金额
@@ -462,8 +478,8 @@ export function getColumns(options: {
                     onClick={() => options.onDelete(req)}
                   >
                     <Trash2 className="text-red-600" />
-                    <span className="text-red-600 font-medium">
-                      删除记录 (管理员)
+                    <span className="font-medium text-red-600">
+                      删除记录（管理员）
                     </span>
                   </DropdownMenuItem>
                 </>

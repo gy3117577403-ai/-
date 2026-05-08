@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { PurchaseRequest, PurchaseStatus } from "@prisma/client";
+import type { PaymentStatus, PurchaseRequest } from "@prisma/client";
 import type { Table } from "@tanstack/react-table";
 import * as XLSX from "xlsx";
 import { FilePlus2, Download } from "lucide-react";
@@ -26,11 +26,12 @@ import { BatchPaymentModal } from "@/components/purchases/batch-payment-modal";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   adminUpdatePurchaseCostAction,
+  approveBatchPaymentAction,
   batchApprovePurchasesAction,
   batchRejectPurchasesAction,
   cancelPurchaseRequestAction,
-  confirmBatchPaymentAction,
   deletePurchaseRequest,
+  financeConfirmPaymentAction,
   markAsPaidAction,
   updateInvoiceNoAction,
   updatePurchaseStatus,
@@ -39,47 +40,44 @@ import { formatInShanghai, shanghaiFileTimestamp } from "@/lib/dayjs-shanghai";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 
-const purchaseStatusZh: Record<PurchaseStatus, string> = {
-  PENDING: "待审批",
-  APPROVED: "已批准",
-  REJECTED: "已驳回",
-  ORDERED: "已采购",
-  RECEIVED: "已入库",
-  CANCELLED: "已撤回",
+const paymentStatusZh: Record<PaymentStatus, string> = {
+  UNPAID: "未付款",
+  APPROVING: "待打款审批",
+  PENDING_FUNDS: "待打款审批",
+  APPROVED_FUNDS: "待财务打款",
+  PAID: "已付款",
 };
 
-type PurchaseExportZhRow = {
-  单号: string;
-  申请人: string;
-  物资型号: string;
-  数量: number;
-  总额: number;
-  状态: string;
-  时间: string;
-};
-
-function mapPurchasesToExportRows(rows: PurchaseRequest[]): PurchaseExportZhRow[] {
+function mapPurchasesToDetailedExportRows(rows: PurchaseRequest[]) {
   return rows.map((r) => ({
     单号: r.requestNo,
     申请人: r.applicant,
-    物资型号: r.itemName,
+    物资名称: r.itemName,
     数量: r.quantity,
-    总额: r.estimatedCost,
-    状态: purchaseStatusZh[r.status],
-    时间: formatInShanghai(r.createdAt, "YYYY-MM-DD HH:mm"),
+    预估金额: r.estimatedCost,
+    实际金额: r.actualCost ?? "",
+    供应商名称: r.supplierName ?? "",
+    结算方式: r.settlementType ?? "",
+    付款状态: paymentStatusZh[r.paymentStatus],
+    打款审批时间: r.paymentApprovedAt
+      ? formatInShanghai(r.paymentApprovedAt, "YYYY-MM-DD HH:mm")
+      : "",
   }));
 }
 
 function exportPurchasesToExcel(rows: PurchaseRequest[]) {
-  const sheetData = mapPurchasesToExportRows(rows);
+  const sheetData = mapPurchasesToDetailedExportRows(rows);
   const ws = XLSX.utils.json_to_sheet(sheetData);
   ws["!cols"] = [
     { wch: 18 },
     { wch: 12 },
     { wch: 22 },
     { wch: 8 },
-    { wch: 10 },
-    { wch: 10 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 24 },
+    { wch: 12 },
+    { wch: 14 },
     { wch: 18 },
   ];
   const wb = XLSX.utils.book_new();
@@ -345,16 +343,32 @@ export function PurchasesClient({
 
   function handleConfirmBatchPayment(rows: PurchaseRequest[]) {
     if (!rows.length) return;
-    if (!confirm("确认已向供方打款并更改状态吗？")) return;
+    if (!confirm("确认批准该批次向供方打款吗？")) return;
 
     startTransition(async () => {
       try {
-        await confirmBatchPaymentAction(rows.map((row) => row.id));
-        toast.success(`已确认 ${rows.length} 单打款完成`);
+        await approveBatchPaymentAction(rows.map((row) => row.id));
+        toast.success(`已批准 ${rows.length} 单打款`);
         tableRef.current?.resetRowSelection();
         router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "确认打款失败");
+        toast.error(e instanceof Error ? e.message : "批准打款失败");
+      }
+    });
+  }
+
+  function handleFinanceConfirmPayment(rows: PurchaseRequest[]) {
+    if (!rows.length) return;
+    if (!confirm("确认财务已完成该批次打款吗？")) return;
+
+    startTransition(async () => {
+      try {
+        await financeConfirmPaymentAction(rows.map((row) => row.id));
+        toast.success(`已确认 ${rows.length} 单财务打款完成`);
+        tableRef.current?.resetRowSelection();
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "财务确认打款失败");
       }
     });
   }
@@ -416,16 +430,6 @@ export function PurchasesClient({
             申请 → 审批 → 采购 → 入库，入库自动同步总仓库存
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" type="button" onClick={handleExportExcel}>
-            <Download className="mr-1.5 h-4 w-4" />
-            导出当前数据
-          </Button>
-          <Button type="button" onClick={() => setDialogOpen(true)}>
-            <FilePlus2 className="mr-1.5 h-4 w-4" />
-            新建请购
-          </Button>
-        </div>
       </div>
 
       <DataTable
@@ -452,9 +456,14 @@ export function PurchasesClient({
         }
         onBatchContract={handleBatchContract}
         onBatchPayment={handleBatchPayment}
-        onConfirmBatchPayment={
+        onApproveBatchPayment={
           role === "BOSS" || role === "ADMIN"
             ? handleConfirmBatchPayment
+            : undefined
+        }
+        onFinanceConfirmPayment={
+          role === "ADMIN" || role === "BOSS" || role === "PURCHASER"
+            ? handleFinanceConfirmPayment
             : undefined
         }
       />

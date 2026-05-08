@@ -289,7 +289,7 @@ export async function createBatchPaymentRequest(
     const updated = await tx.purchaseRequest.updateMany({
       where: { id: { in: cleanIds } },
       data: {
-        paymentStatus: "APPROVING",
+        paymentStatus: "PENDING_FUNDS",
         settlementType,
         supplierName,
         supplierAccount,
@@ -336,10 +336,90 @@ export async function createBatchPaymentRequest(
 }
 
 export async function confirmBatchPaymentAction(ids: string[]) {
+  return approveBatchPaymentAction(ids);
+}
+
+export async function approveBatchPaymentAction(ids: string[]) {
   const session = await getSession();
   if (!session) throw new Error("未登录");
   if (session.role !== "BOSS" && session.role !== "ADMIN") {
-    throw new Error("无确认打款权限");
+    throw new Error("无批准打款权限");
+  }
+
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!cleanIds.length) throw new Error("请至少选择一张采购单");
+  const approvedAt = new Date();
+
+  const selected = await prisma.$transaction(async (tx) => {
+    const rows = await tx.purchaseRequest.findMany({
+      where: { id: { in: cleanIds }, paymentStatus: { in: ["PENDING_FUNDS", "APPROVING"] } },
+      select: {
+        id: true,
+        requestNo: true,
+        supplierName: true,
+        supplierAccount: true,
+        supplierBank: true,
+        actualCost: true,
+        estimatedCost: true,
+      },
+    });
+
+    if (rows.length !== cleanIds.length) {
+      throw new Error("仅待打款审批单据可批准，请刷新后重试");
+    }
+
+    const updated = await tx.purchaseRequest.updateMany({
+      where: { id: { in: cleanIds }, paymentStatus: { in: ["PENDING_FUNDS", "APPROVING"] } },
+      data: {
+        paymentStatus: "APPROVED_FUNDS",
+        paymentApprovedAt: approvedAt,
+      },
+    });
+
+    if (updated.count !== cleanIds.length) {
+      throw new Error("部分采购单打款审批失败，请刷新后重试");
+    }
+
+    return rows;
+  });
+
+  const supplierName =
+    selected.find((row) => row.supplierName?.trim())?.supplierName?.trim() ??
+    "未记录供应商";
+  const totalAmount = selected.reduce(
+    (sum, row) => sum + resolvePaymentAmount(row),
+    0
+  );
+
+  await createLog(
+    session.name,
+    "批准打款",
+    "物品采购",
+    `批准 ${cleanIds.length} 张采购单打款：${selected
+      .map((row) => row.requestNo)
+      .join("、")}`
+  );
+
+  revalidatePath("/purchases");
+
+  void sendWeComMessage(
+    `✅ **老板已批准打款**\n` +
+      `供应商：${supplierName}\n` +
+      `批准单数：${cleanIds.length} 单\n` +
+      `批准金额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+      `<font color="info">@财务</font> 老板已批准给 ${supplierName} 供方打款，请财务执行。`
+  );
+}
+
+export async function financeConfirmPaymentAction(ids: string[]) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (
+    session.role !== "ADMIN" &&
+    session.role !== "BOSS" &&
+    session.role !== "PURCHASER"
+  ) {
+    throw new Error("无财务确认打款权限");
   }
 
   const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
@@ -347,7 +427,7 @@ export async function confirmBatchPaymentAction(ids: string[]) {
 
   const selected = await prisma.$transaction(async (tx) => {
     const rows = await tx.purchaseRequest.findMany({
-      where: { id: { in: cleanIds } },
+      where: { id: { in: cleanIds }, paymentStatus: "APPROVED_FUNDS" },
       select: {
         id: true,
         requestNo: true,
@@ -358,11 +438,11 @@ export async function confirmBatchPaymentAction(ids: string[]) {
     });
 
     if (rows.length !== cleanIds.length) {
-      throw new Error("部分采购单不存在，请刷新后重试");
+      throw new Error("仅老板已批准打款的单据可确认付款，请刷新后重试");
     }
 
     const updated = await tx.purchaseRequest.updateMany({
-      where: { id: { in: cleanIds } },
+      where: { id: { in: cleanIds }, paymentStatus: "APPROVED_FUNDS" },
       data: { paymentStatus: "PAID" },
     });
 
@@ -383,9 +463,9 @@ export async function confirmBatchPaymentAction(ids: string[]) {
 
   await createLog(
     session.name,
-    "批量确认打款",
+    "财务确认打款",
     "物品采购",
-    `批量确认 ${cleanIds.length} 张采购单已打款：${selected
+    `财务确认 ${cleanIds.length} 张采购单已打款：${selected
       .map((row) => row.requestNo)
       .join("、")}`
   );
@@ -622,7 +702,7 @@ export async function markOrderedWithDetailsAction(
     if (!trimmedContract) {
       throw new Error("实际金额达到或超过 500 元时，必须填写合同编号");
     }
-    paymentStatus = "APPROVING";
+    paymentStatus = "PENDING_FUNDS";
     finalContract = trimmedContract;
   }
 

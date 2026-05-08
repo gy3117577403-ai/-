@@ -5,10 +5,12 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
+  getSortedRowModel,
   useReactTable,
   type ColumnDef,
   type ColumnFiltersState,
   type RowSelectionState,
+  type SortingState,
   type Table as TanstackTable,
 } from "@tanstack/react-table";
 import {
@@ -23,6 +25,13 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   CheckCircle2,
   CircleDollarSign,
   FileText,
@@ -35,6 +44,7 @@ type ActiveTab =
   | "all"
   | "purchase_approval"
   | "payment_approval"
+  | "finance_payment"
   | "pending_action"
   | "completed";
 
@@ -47,13 +57,15 @@ interface DataTableProps<TData, TValue> {
   onBatchReject?: (rows: TData[]) => void;
   onBatchContract?: (rows: TData[]) => void;
   onBatchPayment?: (rows: TData[]) => void;
-  onConfirmBatchPayment?: (rows: TData[]) => void;
+  onApproveBatchPayment?: (rows: TData[]) => void;
+  onFinanceConfirmPayment?: (rows: TData[]) => void;
 }
 
 const workspaceTabs: { value: ActiveTab; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "purchase_approval", label: "采购审批" },
   { value: "payment_approval", label: "打款审批" },
+  { value: "finance_payment", label: "财务打款" },
   { value: "pending_action", label: "待采购/入库" },
   { value: "completed", label: "已完成" },
 ];
@@ -67,20 +79,26 @@ export function DataTable<TData, TValue>({
   onBatchReject,
   onBatchContract,
   onBatchPayment,
-  onConfirmBatchPayment,
+  onApproveBatchPayment,
+  onFinanceConfirmPayment,
 }: DataTableProps<TData, TValue>) {
   const [activeTab, setActiveTab] = useState<ActiveTab>("all");
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [supplierFilter, setSupplierFilter] = useState("");
+  const [settlementFilter, setSettlementFilter] = useState("all");
+  const [paymentDateFilter, setPaymentDateFilter] = useState("");
 
   const table = useReactTable({
     data,
     columns,
-    state: { globalFilter, columnFilters, rowSelection },
+    state: { globalFilter, columnFilters, rowSelection, sorting },
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
     onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
     globalFilterFn: (row, _columnId, filterValue: string) => {
       const s = filterValue.toLowerCase();
       const no = String(row.getValue("requestNo") ?? "").toLowerCase();
@@ -90,6 +108,7 @@ export function DataTable<TData, TValue>({
     },
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
     enableRowSelection: true,
   });
 
@@ -123,7 +142,13 @@ export function DataTable<TData, TValue>({
 
     if (nextTab === "payment_approval") {
       table.getColumn("status")?.setFilterValue(undefined);
-      table.getColumn("paymentStatus")?.setFilterValue("APPROVING");
+      table.getColumn("paymentStatus")?.setFilterValue("__pending_funds__");
+      return;
+    }
+
+    if (nextTab === "finance_payment") {
+      table.getColumn("status")?.setFilterValue(undefined);
+      table.getColumn("paymentStatus")?.setFilterValue("__finance__");
       return;
     }
 
@@ -141,6 +166,24 @@ export function DataTable<TData, TValue>({
     const nextTab = value as ActiveTab;
     setActiveTab(nextTab);
     applyWorkspaceFilter(nextTab);
+  }
+
+  function handleSupplierFilter(value: string) {
+    setSupplierFilter(value);
+    table.getColumn("supplierName")?.setFilterValue(value);
+  }
+
+  function handleSettlementFilter(value: string | null) {
+    const nextValue = value ?? "all";
+    setSettlementFilter(nextValue);
+    table
+      .getColumn("settlementType")
+      ?.setFilterValue(nextValue === "all" ? undefined : nextValue);
+  }
+
+  function handlePaymentDateFilter(value: string) {
+    setPaymentDateFilter(value);
+    table.getColumn("paymentApprovedAt")?.setFilterValue(value || undefined);
   }
 
   return (
@@ -184,15 +227,27 @@ export function DataTable<TData, TValue>({
             </>
           )}
 
-          {activeTab === "payment_approval" && onConfirmBatchPayment && (
+          {activeTab === "payment_approval" && onApproveBatchPayment && (
             <Button
               type="button"
               variant="default"
               disabled={!hasSelection}
-              onClick={() => onConfirmBatchPayment(selectedRows)}
+              onClick={() => onApproveBatchPayment(selectedRows)}
             >
               <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              批量确认打款 ({selectedRows.length})
+              批准打款 ({selectedRows.length})
+            </Button>
+          )}
+
+          {activeTab === "finance_payment" && onFinanceConfirmPayment && (
+            <Button
+              type="button"
+              variant="default"
+              disabled={!hasSelection}
+              onClick={() => onFinanceConfirmPayment(selectedRows)}
+            >
+              <CircleDollarSign className="mr-1.5 h-4 w-4" />
+              确认已打款 ({selectedRows.length})
             </Button>
           )}
 
@@ -233,6 +288,32 @@ export function DataTable<TData, TValue>({
             />
           </div>
 
+          <Input
+            placeholder="供应商筛选"
+            value={supplierFilter}
+            onChange={(e) => handleSupplierFilter(e.target.value)}
+            className="w-40"
+          />
+
+          <Select value={settlementFilter} onValueChange={handleSettlementFilter}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="结算方式" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部结算</SelectItem>
+              <SelectItem value="月结">月结</SelectItem>
+              <SelectItem value="对公现结">对公现结</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Input
+            type="date"
+            value={paymentDateFilter}
+            onChange={(e) => handlePaymentDateFilter(e.target.value)}
+            className="w-40"
+            aria-label="按打款审批日期筛选"
+          />
+
           {globalActions}
         </div>
       </div>
@@ -244,12 +325,23 @@ export function DataTable<TData, TValue>({
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
                   <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
+                    {header.isPlaceholder ? null : (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-left disabled:cursor-default"
+                        disabled={!header.column.getCanSort()}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(
                           header.column.columnDef.header,
                           header.getContext()
                         )}
+                        {{
+                          asc: "↑",
+                          desc: "↓",
+                        }[header.column.getIsSorted() as string] ?? null}
+                      </button>
+                    )}
                   </TableHead>
                 ))}
               </TableRow>

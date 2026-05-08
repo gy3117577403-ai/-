@@ -146,6 +146,8 @@ enum PurchaseStatus {
 enum PaymentStatus {
   UNPAID // 未付款（小额默认）
   APPROVING // 待付款审批（大额对公）
+  PENDING_FUNDS // 待老板审批打款
+  APPROVED_FUNDS // 老板已批准，待财务打款
   PAID // 已批准付款
 }
 
@@ -166,6 +168,7 @@ model PurchaseRequest {
   supplierName     String? // 供方名称
   supplierAccount  String? // 供方对公账号
   supplierBank     String? // 供方开户行
+  paymentApprovedAt DateTime? // 老板同意打款时间
   category        ItemCategory    @default(JIG) // 物资分类
   status          PurchaseStatus  @default(PENDING)
   remark          String? // 驳回理由或备注
