@@ -333,13 +333,13 @@ export function DataTable<TData, TValue>({
         </div>
       </div>
 
-      <div className="w-full overflow-x-hidden rounded-md border bg-white">
-        <Table className="w-full table-fixed">
+      <div className="w-full rounded-md border bg-white">
+        <Table className="w-full">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id} className="whitespace-nowrap">
+                  <TableHead key={header.id}>
                     {header.isPlaceholder ? null : (
                       <button
                         type="button"
@@ -370,7 +370,7 @@ export function DataTable<TData, TValue>({
                   data-state={row.getIsSelected() ? "selected" : undefined}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="whitespace-nowrap">
+                    <TableCell key={cell.id}>
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext()

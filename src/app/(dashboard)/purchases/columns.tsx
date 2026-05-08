@@ -82,37 +82,43 @@ export function getColumns(options: {
     {
       id: "select",
       header: ({ table }) => (
-        <Checkbox
-          aria-label="选择全部"
-          checked={table.getIsAllPageRowsSelected()}
-          indeterminate={
-            table.getIsSomePageRowsSelected() &&
-            !table.getIsAllPageRowsSelected()
-          }
-          onCheckedChange={(checked) =>
-            table.toggleAllPageRowsSelected(Boolean(checked))
-          }
-        />
+        <div className="flex w-[40px] justify-center">
+          <Checkbox
+            aria-label="选择全部"
+            checked={table.getIsAllPageRowsSelected()}
+            indeterminate={
+              table.getIsSomePageRowsSelected() &&
+              !table.getIsAllPageRowsSelected()
+            }
+            onCheckedChange={(checked) =>
+              table.toggleAllPageRowsSelected(Boolean(checked))
+            }
+          />
+        </div>
       ),
       cell: ({ row }) => (
-        <Checkbox
-          aria-label="选择行"
-          checked={row.getIsSelected()}
-          disabled={!row.getCanSelect()}
-          onCheckedChange={(checked) => row.toggleSelected(Boolean(checked))}
-        />
+        <div className="flex w-[40px] justify-center">
+          <Checkbox
+            aria-label="选择行"
+            checked={row.getIsSelected()}
+            disabled={!row.getCanSelect()}
+            onCheckedChange={(checked) => row.toggleSelected(Boolean(checked))}
+          />
+        </div>
       ),
       enableSorting: false,
       enableHiding: false,
     },
     {
       accessorKey: "requestNo",
-      header: () => <span className="whitespace-nowrap">单号</span>,
+      header: () => (
+        <span className="block w-[80px] text-muted-foreground">单号</span>
+      ),
       cell: ({ row }) => {
         const requestNo = row.getValue("requestNo") as string;
         return (
           <span
-            className="font-mono text-xs text-muted-foreground whitespace-nowrap"
+            className="block w-[80px] font-mono text-xs text-muted-foreground"
             title={requestNo}
           >
             {compactRequestNo(requestNo)}
@@ -122,16 +128,20 @@ export function getColumns(options: {
     },
     {
       accessorKey: "applicant",
-      header: () => <span className="whitespace-nowrap">申请人</span>,
+      header: () => <span className="block w-[60px]">申请人</span>,
       cell: ({ row }) => (
-        <span className="whitespace-nowrap text-sm">
+        <span className="block w-[60px] text-sm">
           {row.getValue("applicant") as string}
         </span>
       ),
     },
     {
       accessorKey: "itemName",
-      header: () => <span className="whitespace-nowrap">物资名称</span>,
+      header: () => (
+        <span className="block min-w-[200px] max-w-[300px] whitespace-normal break-words">
+          物资名称
+        </span>
+      ),
       cell: ({ row }) => {
         const itemName = row.getValue("itemName") as string;
         const url = row.original.link?.trim();
@@ -141,17 +151,17 @@ export function getColumns(options: {
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex max-w-[220px] items-center gap-1 truncate align-middle font-mono text-sm font-medium text-blue-600 hover:underline"
+              className="inline-flex min-w-[200px] max-w-[300px] items-start gap-1 whitespace-normal break-words font-mono text-sm font-medium text-blue-600 hover:underline"
               title={itemName}
             >
-              <span className="truncate">{itemName}</span>
-              <ExternalLink className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 break-words">{itemName}</span>
+              <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
             </a>
           );
         }
         return (
           <span
-            className="inline-block max-w-[220px] truncate font-mono text-sm font-medium"
+            className="block min-w-[200px] max-w-[300px] whitespace-normal break-words font-mono text-sm font-medium"
             title={itemName}
           >
             {itemName}
@@ -161,48 +171,54 @@ export function getColumns(options: {
     },
     {
       accessorKey: "quantity",
-      header: () => <span className="whitespace-nowrap">数量</span>,
+      header: () => (
+        <span className="block w-[80px] text-right tabular-nums">数量</span>
+      ),
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums font-medium">
+        <span className="block w-[80px] text-right tabular-nums font-medium">
           {(row.getValue("quantity") as number).toLocaleString()}
         </span>
       ),
     },
     {
       accessorKey: "estimatedCost",
-      header: () => <span className="whitespace-nowrap">预估</span>,
+      header: () => (
+        <span className="block w-[80px] text-right tabular-nums">预估</span>
+      ),
       enableSorting: true,
       cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums">
+        <span className="block w-[80px] text-right tabular-nums">
           ￥{(row.getValue("estimatedCost") as number).toFixed(2)}
         </span>
       ),
     },
     {
       accessorKey: "actualCost",
-      header: () => <span className="whitespace-nowrap">实际</span>,
+      header: () => (
+        <span className="block w-[80px] text-right tabular-nums">实际</span>
+      ),
       enableSorting: true,
       cell: ({ row }) => {
         const value = row.getValue("actualCost") as number | null;
         return value != null && Number.isFinite(value) ? (
-          <span className="whitespace-nowrap tabular-nums font-medium text-slate-800">
+          <span className="block w-[80px] text-right tabular-nums font-medium text-slate-800">
             ￥{value.toFixed(2)}
           </span>
         ) : (
-          <span className="text-xs text-slate-400">-</span>
+          <span className="block w-[80px] text-right text-xs text-slate-400">-</span>
         );
       },
     },
     {
       accessorKey: "supplierName",
-      header: () => <span className="whitespace-nowrap">供应商</span>,
+      header: () => <span className="block max-w-[150px] truncate">供应商</span>,
       enableSorting: true,
       enableColumnFilter: true,
       cell: ({ row }) => {
         const value = row.getValue("supplierName") as string | null;
         return value?.trim() ? (
           <span
-            className="block max-w-[150px] truncate whitespace-nowrap text-sm text-slate-700"
+            className="block max-w-[150px] truncate text-sm text-slate-700"
             title={value}
           >
             {value}
@@ -221,14 +237,14 @@ export function getColumns(options: {
     },
     {
       accessorKey: "settlementType",
-      header: () => <span className="whitespace-nowrap">结算</span>,
+      header: () => <span className="block w-[80px] text-center">结算</span>,
       enableColumnFilter: true,
       cell: ({ row }) => {
         const value = row.getValue("settlementType") as string | null;
         return value?.trim() ? (
-          <span className="whitespace-nowrap text-sm">{value}</span>
+          <span className="block w-[80px] text-center text-sm">{value}</span>
         ) : (
-          <span className="text-xs text-slate-400">-</span>
+          <span className="block w-[80px] text-center text-xs text-slate-400">-</span>
         );
       },
       filterFn: (row, _columnId, filterValue: string) => {
@@ -238,14 +254,16 @@ export function getColumns(options: {
     },
     {
       accessorKey: "paymentStatus",
-      header: () => <span className="whitespace-nowrap">付款</span>,
+      header: () => <span className="block w-[100px] text-center">付款</span>,
       cell: ({ row }) => {
         const status = row.getValue("paymentStatus") as PaymentStatus;
         const cfg = paymentBadge[status];
         return (
-          <Badge variant="default" className={cfg.className}>
-            {cfg.label}
-          </Badge>
+          <div className="flex w-[100px] justify-center">
+            <Badge variant="default" className={cfg.className}>
+              {cfg.label}
+            </Badge>
+          </div>
         );
       },
       filterFn: (row, _columnId, filterValue: string) => {
@@ -263,16 +281,20 @@ export function getColumns(options: {
     },
     {
       accessorKey: "paymentApprovedAt",
-      header: () => <span className="whitespace-nowrap">批款时间</span>,
+      header: () => (
+        <span className="block w-[110px] text-center text-muted-foreground">
+          批款时间
+        </span>
+      ),
       enableSorting: true,
       cell: ({ row }) => {
         const value = row.getValue("paymentApprovedAt") as Date | string | null;
         return value ? (
-          <span className="whitespace-nowrap text-xs tabular-nums">
+          <span className="block w-[110px] text-center text-xs tabular-nums text-muted-foreground">
             {formatInShanghai(value, "MM-DD HH:mm")}
           </span>
         ) : (
-          <span className="text-xs text-slate-400">-</span>
+          <span className="block w-[110px] text-center text-xs text-slate-400">-</span>
         );
       },
       filterFn: (row, _columnId, filterValue: string) => {
@@ -283,7 +305,7 @@ export function getColumns(options: {
     },
     {
       accessorKey: "invoiceNo",
-      header: () => <span className="whitespace-nowrap">发票号</span>,
+      header: () => <span className="block max-w-[140px] truncate">发票号</span>,
       cell: ({ row }) => {
         const value = row.getValue("invoiceNo") as string | null;
         return value?.trim() ? (
@@ -297,14 +319,16 @@ export function getColumns(options: {
     },
     {
       accessorKey: "status",
-      header: () => <span className="whitespace-nowrap">状态</span>,
+      header: () => <span className="block w-[100px] text-center">状态</span>,
       cell: ({ row }) => {
         const status = row.getValue("status") as PurchaseStatus;
         const cfg = statusConfig[status];
         return (
-          <Badge variant="default" className={cfg.className}>
-            {cfg.label}
-          </Badge>
+          <div className="flex w-[100px] justify-center">
+            <Badge variant="default" className={cfg.className}>
+              {cfg.label}
+            </Badge>
+          </div>
         );
       },
       filterFn: (row, _columnId, filterValue: string) => {
@@ -325,7 +349,7 @@ export function getColumns(options: {
     },
     {
       accessorKey: "remark",
-      header: () => <span className="whitespace-nowrap">备注</span>,
+      header: () => <span className="block max-w-[160px] truncate">备注</span>,
       cell: ({ row }) => {
         const value = row.getValue("remark") as string | null;
         return value ? (
@@ -339,9 +363,13 @@ export function getColumns(options: {
     },
     {
       accessorKey: "createdAt",
-      header: () => <span className="whitespace-nowrap">申请时间</span>,
+      header: () => (
+        <span className="block w-[110px] text-center text-muted-foreground">
+          申请时间
+        </span>
+      ),
       cell: ({ row }) =>
-        <span className="whitespace-nowrap text-xs tabular-nums">
+        <span className="block w-[110px] text-center text-xs tabular-nums text-muted-foreground">
           {formatInShanghai(
             row.getValue("createdAt") as Date | string,
             "MM-DD HH:mm"
@@ -350,7 +378,7 @@ export function getColumns(options: {
     },
     {
       id: "actions",
-      header: () => <span className="whitespace-nowrap">操作</span>,
+      header: () => <span className="block w-[56px] text-center">操作</span>,
       cell: ({ row }) => {
         const req = row.original;
         const isTerminal =
@@ -359,7 +387,7 @@ export function getColumns(options: {
           req.status === "CANCELLED";
 
         if (isTerminal && role !== "ADMIN") {
-          return <span className="text-xs text-slate-400">已结束</span>;
+          return <span className="block w-[56px] text-center text-xs text-slate-400">已结束</span>;
         }
 
         const canApprove = role === "BOSS" || role === "ADMIN";
@@ -404,10 +432,11 @@ export function getColumns(options: {
           !showWithdraw &&
           role !== "ADMIN"
         ) {
-          return <span className="text-xs text-slate-400">-</span>;
+          return <span className="block w-[56px] text-center text-xs text-slate-400">-</span>;
         }
 
         return (
+          <div className="flex w-[56px] justify-center">
           <DropdownMenu>
             <DropdownMenuTrigger
               render={<Button variant="ghost" size="icon-sm" />}
@@ -517,6 +546,7 @@ export function getColumns(options: {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         );
       },
     },
