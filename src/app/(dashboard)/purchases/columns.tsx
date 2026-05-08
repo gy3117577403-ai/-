@@ -57,6 +57,10 @@ const paymentBadge: Record<
 
 const LARGE_AMOUNT = 500;
 
+function compactRequestNo(value: string) {
+  return value.length > 6 ? `...${value.slice(-6)}` : value;
+}
+
 export function getColumns(options: {
   role: string;
   sessionName: string;
@@ -103,50 +107,85 @@ export function getColumns(options: {
     },
     {
       accessorKey: "requestNo",
-      header: "单号",
+      header: () => <span className="whitespace-nowrap">单号</span>,
+      cell: ({ row }) => {
+        const requestNo = row.getValue("requestNo") as string;
+        return (
+          <span
+            className="font-mono text-xs text-muted-foreground whitespace-nowrap"
+            title={requestNo}
+          >
+            {compactRequestNo(requestNo)}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "applicant",
+      header: () => <span className="whitespace-nowrap">申请人</span>,
       cell: ({ row }) => (
-        <span className="font-mono font-bold text-slate-800">
-          {row.getValue("requestNo")}
+        <span className="whitespace-nowrap text-sm">
+          {row.getValue("applicant") as string}
         </span>
       ),
     },
-    { accessorKey: "applicant", header: "申请人" },
     {
       accessorKey: "itemName",
       header: () => <span className="whitespace-nowrap">物资名称</span>,
-      cell: ({ row }) => (
-        <span className="inline-block min-w-[200px] font-mono text-sm font-medium">
-          {row.getValue("itemName")}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const itemName = row.getValue("itemName") as string;
+        const url = row.original.link?.trim();
+        if (url) {
+          return (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex max-w-[220px] items-center gap-1 truncate align-middle font-mono text-sm font-medium text-blue-600 hover:underline"
+              title={itemName}
+            >
+              <span className="truncate">{itemName}</span>
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          );
+        }
+        return (
+          <span
+            className="inline-block max-w-[220px] truncate font-mono text-sm font-medium"
+            title={itemName}
+          >
+            {itemName}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "quantity",
-      header: "数量",
+      header: () => <span className="whitespace-nowrap">数量</span>,
       cell: ({ row }) => (
-        <span className="tabular-nums font-medium">
+        <span className="whitespace-nowrap tabular-nums font-medium">
           {(row.getValue("quantity") as number).toLocaleString()}
         </span>
       ),
     },
     {
       accessorKey: "estimatedCost",
-      header: "预估金额",
+      header: () => <span className="whitespace-nowrap">预估</span>,
       enableSorting: true,
       cell: ({ row }) => (
-        <span className="tabular-nums">
+        <span className="whitespace-nowrap tabular-nums">
           ￥{(row.getValue("estimatedCost") as number).toFixed(2)}
         </span>
       ),
     },
     {
       accessorKey: "actualCost",
-      header: "实际金额",
+      header: () => <span className="whitespace-nowrap">实际</span>,
       enableSorting: true,
       cell: ({ row }) => {
         const value = row.getValue("actualCost") as number | null;
         return value != null && Number.isFinite(value) ? (
-          <span className="tabular-nums font-medium text-slate-800">
+          <span className="whitespace-nowrap tabular-nums font-medium text-slate-800">
             ￥{value.toFixed(2)}
           </span>
         ) : (
@@ -156,13 +195,16 @@ export function getColumns(options: {
     },
     {
       accessorKey: "supplierName",
-      header: "供应商",
+      header: () => <span className="whitespace-nowrap">供应商</span>,
       enableSorting: true,
       enableColumnFilter: true,
       cell: ({ row }) => {
         const value = row.getValue("supplierName") as string | null;
         return value?.trim() ? (
-          <span className="max-w-[160px] truncate text-sm text-slate-700" title={value}>
+          <span
+            className="block max-w-[150px] truncate whitespace-nowrap text-sm text-slate-700"
+            title={value}
+          >
             {value}
           </span>
         ) : (
@@ -179,11 +221,15 @@ export function getColumns(options: {
     },
     {
       accessorKey: "settlementType",
-      header: "结算方式",
+      header: () => <span className="whitespace-nowrap">结算</span>,
       enableColumnFilter: true,
       cell: ({ row }) => {
         const value = row.getValue("settlementType") as string | null;
-        return value?.trim() ? value : <span className="text-xs text-slate-400">-</span>;
+        return value?.trim() ? (
+          <span className="whitespace-nowrap text-sm">{value}</span>
+        ) : (
+          <span className="text-xs text-slate-400">-</span>
+        );
       },
       filterFn: (row, _columnId, filterValue: string) => {
         if (!filterValue) return true;
@@ -192,7 +238,7 @@ export function getColumns(options: {
     },
     {
       accessorKey: "paymentStatus",
-      header: "付款状态",
+      header: () => <span className="whitespace-nowrap">付款</span>,
       cell: ({ row }) => {
         const status = row.getValue("paymentStatus") as PaymentStatus;
         const cfg = paymentBadge[status];
@@ -217,12 +263,14 @@ export function getColumns(options: {
     },
     {
       accessorKey: "paymentApprovedAt",
-      header: "打款审批时间",
+      header: () => <span className="whitespace-nowrap">批款时间</span>,
       enableSorting: true,
       cell: ({ row }) => {
         const value = row.getValue("paymentApprovedAt") as Date | string | null;
         return value ? (
-          formatInShanghai(value, "YYYY-MM-DD HH:mm")
+          <span className="whitespace-nowrap text-xs tabular-nums">
+            {formatInShanghai(value, "MM-DD HH:mm")}
+          </span>
         ) : (
           <span className="text-xs text-slate-400">-</span>
         );
@@ -235,7 +283,7 @@ export function getColumns(options: {
     },
     {
       accessorKey: "invoiceNo",
-      header: "发票号",
+      header: () => <span className="whitespace-nowrap">发票号</span>,
       cell: ({ row }) => {
         const value = row.getValue("invoiceNo") as string | null;
         return value?.trim() ? (
@@ -248,27 +296,8 @@ export function getColumns(options: {
       },
     },
     {
-      accessorKey: "link",
-      header: "链接",
-      cell: ({ row }) => {
-        const url = row.getValue("link") as string | null;
-        if (!url) return <span className="text-slate-400">-</span>;
-        return (
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
-          >
-            查看
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        );
-      },
-    },
-    {
       accessorKey: "status",
-      header: "状态",
+      header: () => <span className="whitespace-nowrap">状态</span>,
       cell: ({ row }) => {
         const status = row.getValue("status") as PurchaseStatus;
         const cfg = statusConfig[status];
@@ -296,7 +325,7 @@ export function getColumns(options: {
     },
     {
       accessorKey: "remark",
-      header: "备注",
+      header: () => <span className="whitespace-nowrap">备注</span>,
       cell: ({ row }) => {
         const value = row.getValue("remark") as string | null;
         return value ? (
@@ -310,16 +339,18 @@ export function getColumns(options: {
     },
     {
       accessorKey: "createdAt",
-      header: "申请时间",
+      header: () => <span className="whitespace-nowrap">申请时间</span>,
       cell: ({ row }) =>
-        formatInShanghai(
-          row.getValue("createdAt") as Date | string,
-          "YYYY-MM-DD HH:mm"
-        ),
+        <span className="whitespace-nowrap text-xs tabular-nums">
+          {formatInShanghai(
+            row.getValue("createdAt") as Date | string,
+            "MM-DD HH:mm"
+          )}
+        </span>,
     },
     {
       id: "actions",
-      header: "操作",
+      header: () => <span className="whitespace-nowrap">操作</span>,
       cell: ({ row }) => {
         const req = row.original;
         const isTerminal =

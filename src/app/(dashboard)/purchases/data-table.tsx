@@ -12,6 +12,7 @@ import {
   type RowSelectionState,
   type SortingState,
   type Table as TanstackTable,
+  type VisibilityState,
 } from "@tanstack/react-table";
 import {
   Table,
@@ -85,6 +86,13 @@ export function DataTable<TData, TValue>({
   const [activeTab, setActiveTab] = useState<ActiveTab>("all");
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] =
+    useState<VisibilityState>({
+      estimatedCost: false,
+      invoiceNo: false,
+      link: false,
+      remark: false,
+    });
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [sorting, setSorting] = useState<SortingState>([]);
   const [supplierFilter, setSupplierFilter] = useState("");
@@ -94,9 +102,16 @@ export function DataTable<TData, TValue>({
   const table = useReactTable({
     data,
     columns,
-    state: { globalFilter, columnFilters, rowSelection, sorting },
+    state: {
+      globalFilter,
+      columnFilters,
+      columnVisibility,
+      rowSelection,
+      sorting,
+    },
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
     globalFilterFn: (row, _columnId, filterValue: string) => {
@@ -318,13 +333,13 @@ export function DataTable<TData, TValue>({
         </div>
       </div>
 
-      <div className="w-full overflow-x-auto rounded-md border bg-white">
-        <Table className="w-full">
+      <div className="w-full overflow-x-hidden rounded-md border bg-white">
+        <Table className="w-full table-fixed">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead key={header.id} className="whitespace-nowrap">
                     {header.isPlaceholder ? null : (
                       <button
                         type="button"
@@ -355,7 +370,7 @@ export function DataTable<TData, TValue>({
                   data-state={row.getIsSelected() ? "selected" : undefined}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell key={cell.id} className="whitespace-nowrap">
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext()
