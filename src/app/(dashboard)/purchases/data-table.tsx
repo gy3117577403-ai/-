@@ -131,9 +131,17 @@ export function DataTable<TData, TValue>({
     .getFilteredSelectedRowModel()
     .rows.map((row) => row.original);
   const hasSelection = selectedRows.length > 0;
+  const filteredRows = table.getFilteredRowModel().rows;
+  const totalActualCost =
+    filteredRows.reduce((sum, row) => {
+      const item = row.original as { actualCost?: number | null };
+      const actualCost = Number(item.actualCost);
+      if (!Number.isFinite(actualCost)) return sum;
+      return sum + Math.round(actualCost * 100);
+    }, 0) / 100;
   const hasSupplierRiskInFinance =
     activeTab === "finance_payment" &&
-    table.getFilteredRowModel().rows.some((row) => {
+    filteredRows.some((row) => {
       const item = row.original as {
         paymentStatus?: string;
         paymentApprovedAt?: Date | string | null;
@@ -420,9 +428,13 @@ export function DataTable<TData, TValue>({
         </Table>
       </div>
 
-      <p className="text-xs text-slate-400">
-        共 {table.getFilteredRowModel().rows.length} 条记录
-      </p>
+      <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+        <span>共 {filteredRows.length} 条记录</span>
+        <span className="font-semibold text-foreground">
+          当前筛选合计金额：
+          <span className="text-red-600">¥ {totalActualCost.toFixed(2)}</span>
+        </span>
+      </div>
     </div>
   );
 }

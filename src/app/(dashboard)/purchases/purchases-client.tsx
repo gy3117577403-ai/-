@@ -66,8 +66,32 @@ function mapPurchasesToDetailedExportRows(rows: PurchaseRequest[]) {
   }));
 }
 
+function calculateActualCostTotal(rows: PurchaseRequest[]) {
+  return (
+    rows.reduce((sum, row) => {
+      const actualCost = Number(row.actualCost);
+      if (!Number.isFinite(actualCost)) return sum;
+      return sum + Math.round(actualCost * 100);
+    }, 0) / 100
+  );
+}
+
 function exportPurchasesToExcel(rows: PurchaseRequest[]) {
-  const sheetData = mapPurchasesToDetailedExportRows(rows);
+  const sheetData: Array<Record<string, string | number>> =
+    mapPurchasesToDetailedExportRows(rows);
+  const totalActualCost = calculateActualCostTotal(rows);
+  sheetData.push({
+    单号: "合计 (Total)",
+    申请人: "",
+    物资名称: "",
+    数量: "",
+    预估金额: "",
+    实际金额: totalActualCost.toFixed(2),
+    供应商名称: "",
+    结算方式: "",
+    付款状态: "",
+    打款审批时间: "",
+  });
   const ws = XLSX.utils.json_to_sheet(sheetData);
   ws["!cols"] = [
     { wch: 18 },
