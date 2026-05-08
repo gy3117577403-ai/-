@@ -211,10 +211,38 @@ export function getColumns(options: {
       ),
       enableSorting: true,
       cell: ({ row }) => {
+        const req = row.original;
         const value = row.getValue("actualCost") as number | null;
+        const canEdit =
+          (role === "ADMIN" || role === "PURCHASER") &&
+          req.paymentStatus !== "PAID";
+        const display =
+          value != null && Number.isFinite(value) ? `￥${value.toFixed(2)}` : "-";
+
+        if (canEdit) {
+          return (
+            <button
+              type="button"
+              className="flex w-[80px] items-center justify-end gap-1 text-right tabular-nums text-blue-600 decoration-dashed underline-offset-4 hover:underline"
+              title={
+                req.paymentStatus === "APPROVED_FUNDS"
+                  ? "老板已批准原金额，修改需二次确认"
+                  : "编辑实际金额"
+              }
+              onClick={(event) => {
+                event.stopPropagation();
+                options.onAdminEditCost(req);
+              }}
+            >
+              <span>{display}</span>
+              <PencilLine className="h-3.5 w-3.5 shrink-0" />
+            </button>
+          );
+        }
+
         return value != null && Number.isFinite(value) ? (
           <span className="block w-[80px] text-right tabular-nums font-medium text-slate-800">
-            ￥{value.toFixed(2)}
+            {display}
           </span>
         ) : (
           <span className="block w-[80px] text-right text-xs text-slate-400">-</span>
@@ -451,6 +479,9 @@ export function getColumns(options: {
           (role === "BOSS" || role === "ADMIN") &&
           (req.status === "ORDERED" || req.status === "RECEIVED") &&
           req.paymentStatus !== "PAID";
+        const canEditActualCost =
+          (role === "ADMIN" || role === "PURCHASER") &&
+          req.paymentStatus !== "PAID";
         const showEditInvoice =
           (role === "ADMIN" || role === "BOSS" || role === "PURCHASER") &&
           (req.status === "ORDERED" || req.status === "RECEIVED");
@@ -481,6 +512,7 @@ export function getColumns(options: {
           !showDelete &&
           !showAdminDelete &&
           !showWithdraw &&
+          !canEditActualCost &&
           role !== "ADMIN"
         ) {
           return <span className="block w-[56px] text-center text-xs text-slate-400">-</span>;
@@ -572,7 +604,7 @@ export function getColumns(options: {
                   </DropdownMenuItem>
                 </>
               )}
-              {role === "ADMIN" && (
+              {canEditActualCost && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => options.onAdminEditCost(req)}>

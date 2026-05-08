@@ -921,14 +921,14 @@ export async function cancelPurchaseRequestAction(id: string) {
   revalidatePath("/purchases");
 }
 
-export async function adminUpdatePurchaseCostAction(
+export async function updatePurchaseActualCostAction(
   id: string,
   actualCost: number
 ) {
   const session = await getSession();
   if (!session) throw new Error("未登录");
-  if (session.role !== "ADMIN") {
-    throw new Error("Unauthorized");
+  if (session.role !== "ADMIN" && session.role !== "PURCHASER") {
+    throw new Error("无实际金额编辑权限");
   }
 
   const cost = roundMoney(Number(actualCost));
@@ -939,10 +939,28 @@ export async function adminUpdatePurchaseCostAction(
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("请购单不存在");
 
+  if (row.paymentStatus === "PAID") {
+    throw new Error("已付款单据无法修改金额");
+  }
+
   await prisma.purchaseRequest.update({
     where: { id },
     data: { actualCost: cost },
   });
 
+  await createLog(
+    session.name,
+    "修改实际金额",
+    "物品采购",
+    `采购单 ${row.requestNo} 实际金额已更新为 ${cost} 元`
+  );
+
   revalidatePath("/purchases");
+}
+
+export async function adminUpdatePurchaseCostAction(
+  id: string,
+  actualCost: number
+) {
+  return updatePurchaseActualCostAction(id, actualCost);
 }

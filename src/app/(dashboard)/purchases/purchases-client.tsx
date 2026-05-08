@@ -26,7 +26,6 @@ import { BatchPaymentModal } from "@/components/purchases/batch-payment-modal";
 import { EditSupplierModal } from "@/components/purchases/edit-supplier-modal";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
-  adminUpdatePurchaseCostAction,
   approveBatchPaymentAction,
   batchApprovePurchasesAction,
   batchRejectPurchasesAction,
@@ -35,6 +34,7 @@ import {
   financeConfirmPaymentAction,
   markAsPaidAction,
   updateInvoiceNoAction,
+  updatePurchaseActualCostAction,
   updatePurchaseStatus,
 } from "@/lib/actions/purchase";
 import { formatInShanghai, shanghaiFileTimestamp } from "@/lib/dayjs-shanghai";
@@ -229,6 +229,14 @@ export function PurchasesClient({
   }
 
   function handleAdminEditCost(row: PurchaseRequest) {
+    if (
+      row.paymentStatus === "APPROVED_FUNDS" &&
+      !confirm(
+        "老板已批准原金额，修改实际金额可能导致财务打款差异，确定修改吗？"
+      )
+    ) {
+      return;
+    }
     setEditCostTarget(row);
     setEditCostValue(
       row.actualCost != null && Number.isFinite(row.actualCost)
@@ -252,7 +260,7 @@ export function PurchasesClient({
     }
     startEditCostTransition(async () => {
       try {
-        await adminUpdatePurchaseCostAction(editCostTarget.id, n);
+        await updatePurchaseActualCostAction(editCostTarget.id, n);
         toast.success("金额补录成功");
         setEditCostOpen(false);
         setEditCostTarget(null);
