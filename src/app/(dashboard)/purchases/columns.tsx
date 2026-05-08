@@ -61,6 +61,17 @@ function compactRequestNo(value: string) {
   return value.length > 6 ? `...${value.slice(-6)}` : value;
 }
 
+function hasSupplierChangeAfterApproval(row: PurchaseRequest) {
+  if (row.paymentStatus !== "APPROVED_FUNDS" || !row.paymentApprovedAt) {
+    return false;
+  }
+  return (
+    new Date(row.updatedAt).getTime() -
+      new Date(row.paymentApprovedAt).getTime() >
+    5000
+  );
+}
+
 export function getColumns(options: {
   role: string;
   sessionName: string;
@@ -75,6 +86,7 @@ export function getColumns(options: {
   onEditInvoice: (row: PurchaseRequest) => void;
   onPrintContract: (row: PurchaseRequest) => void;
   onAdminEditCost: (row: PurchaseRequest) => void;
+  onEditSupplier: (row: PurchaseRequest) => void;
 }): ColumnDef<PurchaseRequest>[] {
   const { role, sessionName, sessionUserId } = options;
 
@@ -215,16 +227,55 @@ export function getColumns(options: {
       enableSorting: true,
       enableColumnFilter: true,
       cell: ({ row }) => {
-        const value = row.getValue("supplierName") as string | null;
-        return value?.trim() ? (
-          <span
-            className="block max-w-[150px] truncate text-sm text-slate-700"
-            title={value}
-          >
-            {value}
-          </span>
-        ) : (
-          <span className="text-xs text-slate-400">-</span>
+        const req = row.original;
+        const value = (row.getValue("supplierName") as string | null)?.trim();
+        const canEdit =
+          (role === "ADMIN" || role === "PURCHASER") &&
+          req.paymentStatus !== "PAID";
+        const warnBeforePayment =
+          req.paymentStatus === "PENDING_FUNDS" ||
+          req.paymentStatus === "APPROVED_FUNDS";
+        const changedAfterApproval = hasSupplierChangeAfterApproval(req);
+        const editButtonClass = warnBeforePayment
+          ? "text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+          : "text-slate-400 hover:text-slate-700";
+
+        return (
+          <div className="flex max-w-[150px] items-center gap-1">
+            <span
+              className="block min-w-0 flex-1 truncate text-sm text-slate-700"
+              title={value || "未填写供应商"}
+            >
+              {value || "-"}
+            </span>
+            {changedAfterApproval && (
+              <span
+                className="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-700"
+                title="供应商信息在老板批准打款后发生过变动，请财务复核"
+              >
+                变更
+              </span>
+            )}
+            {canEdit && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={`h-6 w-6 shrink-0 ${editButtonClass}`}
+                title={
+                  warnBeforePayment
+                    ? "当前单据已进入打款流程，修改供应商信息需谨慎"
+                    : "编辑供应商信息"
+                }
+                onClick={(event) => {
+                  event.stopPropagation();
+                  options.onEditSupplier(req);
+                }}
+              >
+                <PencilLine className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
         );
       },
       filterFn: (row, _columnId, filterValue: string) => {

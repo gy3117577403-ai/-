@@ -789,6 +789,53 @@ export async function updateInvoiceNoAction(id: string, invoiceNo: string) {
   revalidatePath("/purchases");
 }
 
+export async function updateSupplierInfoAction(
+  id: string,
+  data: {
+    supplierName: string;
+    supplierAccount: string;
+    supplierBank: string;
+  }
+) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "ADMIN" && session.role !== "PURCHASER") {
+    throw new Error("无供应商信息编辑权限");
+  }
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!row) throw new Error("采购单不存在");
+  if (row.paymentStatus === "PAID") {
+    throw new Error("已付款单据禁止修改供应商信息");
+  }
+
+  const supplierName = data.supplierName.trim();
+  const supplierAccount = data.supplierAccount.trim();
+  const supplierBank = data.supplierBank.trim();
+
+  if (!supplierName) {
+    throw new Error("供应商名称不能为空");
+  }
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: {
+      supplierName,
+      supplierAccount: supplierAccount || null,
+      supplierBank: supplierBank || null,
+    },
+  });
+
+  await createLog(
+    session.name,
+    "编辑供应商信息",
+    "物品采购",
+    `采购单 ${row.requestNo} 供应商信息已更新`
+  );
+
+  revalidatePath("/purchases");
+}
+
 export async function deletePurchaseRequest(id: string) {
   const session = await getSession();
   if (!session) throw new Error("未登录");

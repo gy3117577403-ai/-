@@ -23,6 +23,7 @@ import { getColumns } from "./columns";
 import { CreatePurchaseDialog } from "@/components/purchases/create-purchase-dialog";
 import { BatchContractModal } from "@/components/purchases/batch-contract-modal";
 import { BatchPaymentModal } from "@/components/purchases/batch-payment-modal";
+import { EditSupplierModal } from "@/components/purchases/edit-supplier-modal";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   adminUpdatePurchaseCostAction,
@@ -128,6 +129,8 @@ export function PurchasesClient({
     useState<PurchaseRequest | null>(null);
   const [invoiceValue, setInvoiceValue] = useState("");
   const [invoicePending, startInvoiceTransition] = useTransition();
+  const [editSupplierTarget, setEditSupplierTarget] =
+    useState<PurchaseRequest | null>(null);
 
   function handleApprove(row: PurchaseRequest) {
     startTransition(async () => {
@@ -195,6 +198,10 @@ export function PurchasesClient({
     setInvoiceTarget(row);
     setInvoiceValue(row.invoiceNo?.trim() ?? "");
     setInvoiceOpen(true);
+  }
+
+  function handleEditSupplier(row: PurchaseRequest) {
+    setEditSupplierTarget(row);
   }
 
   function handleSaveInvoice() {
@@ -419,6 +426,7 @@ export function PurchasesClient({
     onEditInvoice: handleEditInvoice,
     onPrintContract: handlePrintContract,
     onAdminEditCost: handleAdminEditCost,
+    onEditSupplier: handleEditSupplier,
   });
 
   return (
@@ -482,6 +490,11 @@ export function PurchasesClient({
         selectedIds={batchPaymentIds}
         onClose={() => setBatchPaymentIds([])}
         onSuccess={handleBatchPaymentSuccess}
+      />
+
+      <EditSupplierModal
+        purchase={editSupplierTarget}
+        onClose={() => setEditSupplierTarget(null)}
       />
 
       <MarkOrderedDialog

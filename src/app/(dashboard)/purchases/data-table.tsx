@@ -131,6 +131,27 @@ export function DataTable<TData, TValue>({
     .getFilteredSelectedRowModel()
     .rows.map((row) => row.original);
   const hasSelection = selectedRows.length > 0;
+  const hasSupplierRiskInFinance =
+    activeTab === "finance_payment" &&
+    table.getFilteredRowModel().rows.some((row) => {
+      const item = row.original as {
+        paymentStatus?: string;
+        paymentApprovedAt?: Date | string | null;
+        updatedAt?: Date | string | null;
+      };
+      if (
+        item.paymentStatus !== "APPROVED_FUNDS" ||
+        !item.paymentApprovedAt ||
+        !item.updatedAt
+      ) {
+        return false;
+      }
+      return (
+        new Date(item.updatedAt).getTime() -
+          new Date(item.paymentApprovedAt).getTime() >
+        5000
+      );
+    });
 
   useEffect(() => {
     if (!tableRef) return;
@@ -332,6 +353,12 @@ export function DataTable<TData, TValue>({
           {globalActions}
         </div>
       </div>
+
+      {hasSupplierRiskInFinance && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          检测到部分单据在老板批准打款后仍发生过信息变动，请财务打款前重点复核供应商名称、对公账号与开户行。
+        </div>
+      )}
 
       <div className="w-full rounded-md border bg-white">
         <Table className="w-full">
