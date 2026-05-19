@@ -1084,6 +1084,43 @@ export async function updateSupplierInfoAction(
   revalidatePath("/purchases");
 }
 
+export async function updatePurchaseSettlementTypeAction(
+  id: string,
+  settlementType: string
+) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "ADMIN" && session.role !== "PURCHASER") {
+    throw new Error("无结算方式编辑权限");
+  }
+
+  const nextSettlementType = settlementType.trim();
+  const allowedSettlementTypes = ["采购垫付", "对公现结", "月结"];
+  if (!allowedSettlementTypes.includes(nextSettlementType)) {
+    throw new Error("结算方式无效");
+  }
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id } });
+  if (!row) throw new Error("采购单不存在");
+  if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
+    throw new Error("已完成结算的单据无法修改结算方式");
+  }
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { settlementType: nextSettlementType },
+  });
+
+  await createLog(
+    session.name,
+    "修改结算方式",
+    "物品采购",
+    `采购单 ${row.requestNo} 结算方式已更新为 ${nextSettlementType}`
+  );
+
+  revalidatePath("/purchases");
+}
+
 export async function deletePurchaseRequest(id: string) {
   const session = await getSession();
   if (!session) throw new Error("未登录");

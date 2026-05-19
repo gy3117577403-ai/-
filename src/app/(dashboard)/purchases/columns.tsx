@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import type {
   PaymentStatus,
@@ -9,6 +11,13 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +39,9 @@ import {
   Undo2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { formatInShanghai } from "@/lib/dayjs-shanghai";
+import { updatePurchaseSettlementTypeAction } from "@/lib/actions/purchase";
 
 const statusConfig: Record<
   PurchaseStatus,
@@ -59,6 +70,7 @@ const paymentBadge: Record<
 };
 
 const LARGE_AMOUNT = 500;
+const SETTLEMENT_TYPE_OPTIONS = ["采购垫付", "对公现结", "月结"] as const;
 
 function compactRequestNo(value: string) {
   return value.length > 6 ? `...${value.slice(-6)}` : value;
@@ -72,6 +84,78 @@ function hasSupplierChangeAfterApproval(row: PurchaseRequest) {
     new Date(row.updatedAt).getTime() -
       new Date(row.paymentApprovedAt).getTime() >
     5000
+  );
+}
+
+function SettlementTypeCell({
+  row,
+  canEdit,
+}: {
+  row: PurchaseRequest;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const currentValue = row.settlementType?.trim() || "";
+  const [value, setValue] = useState(currentValue);
+
+  useEffect(() => {
+    setValue(currentValue);
+  }, [currentValue]);
+
+  if (!canEdit) {
+    return value ? (
+      <span className="block w-[80px] text-center text-sm">{value}</span>
+    ) : (
+      <span className="block w-[80px] text-center text-xs text-slate-400">-</span>
+    );
+  }
+
+  function handleChange(nextValue: string | null) {
+    if (!nextValue) return;
+    if (nextValue === value) return;
+    const previousValue = value;
+    setValue(nextValue);
+    startTransition(() => {
+      void (async () => {
+        try {
+          await updatePurchaseSettlementTypeAction(row.id, nextValue);
+          toast.success(`结算方式已变更为 ${nextValue}`);
+          router.refresh();
+        } catch (error) {
+          setValue(previousValue);
+          toast.error(error instanceof Error ? error.message : "结算方式更新失败");
+        }
+      })();
+    });
+  }
+
+  return (
+    <div
+      className="flex w-[80px] justify-center"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <Select
+        value={value || undefined}
+        onValueChange={handleChange}
+        disabled={isPending}
+      >
+        <SelectTrigger
+          size="sm"
+          className="h-7 w-[80px] rounded-md px-2 text-xs"
+          title="修改结算方式"
+        >
+          <SelectValue placeholder="选择" />
+        </SelectTrigger>
+        <SelectContent align="center" className="min-w-28">
+          {SETTLEMENT_TYPE_OPTIONS.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 
@@ -326,12 +410,12 @@ export function getColumns(options: {
       header: () => <span className="block w-[80px] text-center">结算</span>,
       enableColumnFilter: true,
       cell: ({ row }) => {
-        const value = row.getValue("settlementType") as string | null;
-        return value?.trim() ? (
-          <span className="block w-[80px] text-center text-sm">{value}</span>
-        ) : (
-          <span className="block w-[80px] text-center text-xs text-slate-400">-</span>
-        );
+        const req = row.original;
+        const canEdit =
+          (role === "ADMIN" || role === "PURCHASER") &&
+          req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "REIMBURSED";
+        return <SettlementTypeCell row={req} canEdit={canEdit} />;
       },
       filterFn: (row, _columnId, filterValue: string) => {
         if (!filterValue) return true;
