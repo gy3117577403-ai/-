@@ -24,6 +24,7 @@ import { CreatePurchaseDialog } from "@/components/purchases/create-purchase-dia
 import { BatchContractModal } from "@/components/purchases/batch-contract-modal";
 import { BatchPaymentModal } from "@/components/purchases/batch-payment-modal";
 import { EditSupplierModal } from "@/components/purchases/edit-supplier-modal";
+import { ReimbursementModal } from "@/components/purchases/reimbursement-modal";
 import { MarkOrderedDialog } from "./mark-ordered-dialog";
 import {
   approveBatchPaymentAction,
@@ -46,7 +47,10 @@ const paymentStatusZh: Record<PaymentStatus, string> = {
   APPROVING: "待打款审批",
   PENDING_FUNDS: "待打款审批",
   APPROVED_FUNDS: "待财务打款",
+  PENDING_REIMBURSEMENT: "待报销审批",
+  APPROVED_REIMBURSEMENT: "待财务报销",
   PAID: "已付款",
+  REIMBURSED: "已报销完成",
 };
 
 function mapPurchasesToDetailedExportRows(rows: PurchaseRequest[]) {
@@ -129,6 +133,7 @@ export function PurchasesClient({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [batchContractIds, setBatchContractIds] = useState<string[]>([]);
   const [batchPaymentIds, setBatchPaymentIds] = useState<string[]>([]);
+  const [reimbursementIds, setReimbursementIds] = useState<string[]>([]);
   const [, startTransition] = useTransition();
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -375,39 +380,78 @@ export function PurchasesClient({
     setBatchPaymentIds(rows.map((row) => row.id));
   }
 
+  function handleBatchReimbursement(rows: PurchaseRequest[]) {
+    setReimbursementIds(rows.map((row) => row.id));
+  }
+
   function handleBatchPaymentSuccess() {
+    tableRef.current?.resetRowSelection();
+    router.refresh();
+  }
+
+  function handleBatchReimbursementSuccess() {
     tableRef.current?.resetRowSelection();
     router.refresh();
   }
 
   function handleConfirmBatchPayment(rows: PurchaseRequest[]) {
     if (!rows.length) return;
-    if (!confirm("确认批准该批次向供方打款吗？")) return;
+    const isReimbursement = rows.every(
+      (row) => row.paymentStatus === "PENDING_REIMBURSEMENT"
+    );
+    if (
+      !confirm(
+        isReimbursement
+          ? "确认批准该批次采购垫付报销吗？"
+          : "确认批准该批次向供方打款吗？"
+      )
+    ) {
+      return;
+    }
 
     startTransition(async () => {
       try {
         await approveBatchPaymentAction(rows.map((row) => row.id));
-        toast.success(`已批准 ${rows.length} 单打款`);
+        toast.success(
+          isReimbursement
+            ? `已批准 ${rows.length} 单报销`
+            : `已批准 ${rows.length} 单打款`
+        );
         tableRef.current?.resetRowSelection();
         router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "批准打款失败");
+        toast.error(e instanceof Error ? e.message : "批准失败");
       }
     });
   }
 
   function handleFinanceConfirmPayment(rows: PurchaseRequest[]) {
     if (!rows.length) return;
-    if (!confirm("确认财务已完成该批次打款吗？")) return;
+    const isReimbursement = rows.every(
+      (row) => row.paymentStatus === "APPROVED_REIMBURSEMENT"
+    );
+    if (
+      !confirm(
+        isReimbursement
+          ? "确认财务已完成该批次报销打款吗？"
+          : "确认财务已完成该批次打款吗？"
+      )
+    ) {
+      return;
+    }
 
     startTransition(async () => {
       try {
         await financeConfirmPaymentAction(rows.map((row) => row.id));
-        toast.success(`已确认 ${rows.length} 单财务打款完成`);
+        toast.success(
+          isReimbursement
+            ? `已确认 ${rows.length} 单报销打款完成`
+            : `已确认 ${rows.length} 单财务打款完成`
+        );
         tableRef.current?.resetRowSelection();
         router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "财务确认打款失败");
+        toast.error(e instanceof Error ? e.message : "财务确认失败");
       }
     });
   }
@@ -496,6 +540,7 @@ export function PurchasesClient({
         }
         onBatchContract={handleBatchContract}
         onBatchPayment={handleBatchPayment}
+        onBatchReimbursement={handleBatchReimbursement}
         onApproveBatchPayment={
           role === "BOSS" || role === "ADMIN"
             ? handleConfirmBatchPayment
@@ -522,6 +567,12 @@ export function PurchasesClient({
         selectedIds={batchPaymentIds}
         onClose={() => setBatchPaymentIds([])}
         onSuccess={handleBatchPaymentSuccess}
+      />
+
+      <ReimbursementModal
+        selectedIds={reimbursementIds}
+        onClose={() => setReimbursementIds([])}
+        onSuccess={handleBatchReimbursementSuccess}
       />
 
       <EditSupplierModal

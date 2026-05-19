@@ -33,8 +33,24 @@ type BatchPaymentRequestInput = {
   supplierBank: string;
 };
 
-const LARGE_AMOUNT_THRESHOLD = 500;
+type BatchReimbursementInput = {
+  name: string;
+  card: string;
+  bank: string;
+};
 
+const LARGE_AMOUNT_THRESHOLD = 500;
+const PUBLIC_PAYMENT_PENDING_STATUSES: PaymentStatus[] = [
+  "PENDING_FUNDS",
+  "APPROVING",
+];
+const PUBLIC_PAYMENT_APPROVED_STATUSES: PaymentStatus[] = ["APPROVED_FUNDS"];
+const REIMBURSEMENT_PENDING_STATUSES: PaymentStatus[] = [
+  "PENDING_REIMBURSEMENT",
+];
+const REIMBURSEMENT_APPROVED_STATUSES: PaymentStatus[] = [
+  "APPROVED_REIMBURSEMENT",
+];
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -279,11 +295,17 @@ export async function createBatchPaymentRequest(
         requestNo: true,
         actualCost: true,
         estimatedCost: true,
+        paymentStatus: true,
       },
     });
 
     if (rows.length !== cleanIds.length) {
       throw new Error("部分采购单不存在，请刷新后重试");
+    }
+
+    const locked = rows.find((row) => row.paymentStatus !== "UNPAID");
+    if (locked) {
+      throw new Error("所选单据中存在已进入资金流程的记录，请勿重复提交请款");
     }
 
     const updated = await tx.purchaseRequest.updateMany({
@@ -335,6 +357,101 @@ export async function createBatchPaymentRequest(
   revalidatePath("/purchases");
 }
 
+export async function submitBatchReimbursementAction(
+  ids: string[],
+  rData: BatchReimbursementInput
+) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "ADMIN" && session.role !== "PURCHASER") {
+    throw new Error("无报销申请权限");
+  }
+
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (!cleanIds.length) throw new Error("请至少选择一张采购单");
+
+  const reimbursementName = rData.name.trim();
+  const reimbursementCard = rData.card.trim();
+  const reimbursementBank = rData.bank.trim();
+  if (!reimbursementName || !reimbursementCard || !reimbursementBank) {
+    throw new Error("请完整填写报销收款人、银行卡号和开户行");
+  }
+
+  const selected = await prisma.$transaction(async (tx) => {
+    const rows = await tx.purchaseRequest.findMany({
+      where: { id: { in: cleanIds } },
+      select: {
+        id: true,
+        requestNo: true,
+        actualCost: true,
+        estimatedCost: true,
+        paymentStatus: true,
+      },
+    });
+
+    if (rows.length !== cleanIds.length) {
+      throw new Error("部分采购单不存在，请刷新后重试");
+    }
+
+    const locked = rows.find((row) =>
+      [
+        "PENDING_FUNDS",
+        "APPROVING",
+        "APPROVED_FUNDS",
+        "PENDING_REIMBURSEMENT",
+        "APPROVED_REIMBURSEMENT",
+        "PAID",
+        "REIMBURSED",
+      ].includes(row.paymentStatus)
+    );
+    if (locked) {
+      throw new Error("所选单据中存在已进入打款或报销流程的记录，请勿混合提交");
+    }
+
+    const updated = await tx.purchaseRequest.updateMany({
+      where: { id: { in: cleanIds } },
+      data: {
+        paymentStatus: "PENDING_REIMBURSEMENT",
+        settlementType: "采购垫付",
+        reimbursementName,
+        reimbursementCard,
+        reimbursementBank,
+      },
+    });
+
+    if (updated.count !== cleanIds.length) {
+      throw new Error("部分采购单报销提交失败，请刷新后重试");
+    }
+
+    return rows;
+  });
+
+  const totalAmount = selected.reduce(
+    (sum, row) => sum + resolvePaymentAmount(row),
+    0
+  );
+  const baseUrl = resolveAppBaseUrl();
+  const reimbursementUrl = baseUrl ? `${baseUrl}/purchases` : "/purchases";
+
+  await createLog(
+    session.name,
+    "发起合并报销",
+    "物品采购",
+    `发起 ${cleanIds.length} 张采购垫付单据报销，收款人 ${reimbursementName}`
+  );
+
+  revalidatePath("/purchases");
+
+  void sendWeComMessage(
+    `🧾 **采购个人垫付报销申请**\n` +
+      `报销人：${reimbursementName}\n` +
+      `申请单数：${cleanIds.length} 单\n` +
+      `报销总额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+      `<font color="info">@邓总</font> 采购提交了个人垫付合并报销，请核对后审批。\n\n` +
+      `[👉 点击这里前往系统审批报销](${reimbursementUrl})`
+  );
+}
+
 export async function confirmBatchPaymentAction(ids: string[]) {
   return approveBatchPaymentAction(ids);
 }
@@ -352,40 +469,70 @@ export async function approveBatchPaymentAction(ids: string[]) {
 
   const selected = await prisma.$transaction(async (tx) => {
     const rows = await tx.purchaseRequest.findMany({
-      where: { id: { in: cleanIds }, paymentStatus: { in: ["PENDING_FUNDS", "APPROVING"] } },
+      where: { id: { in: cleanIds } },
       select: {
         id: true,
         requestNo: true,
         supplierName: true,
         supplierAccount: true,
         supplierBank: true,
+        reimbursementName: true,
+        reimbursementCard: true,
+        reimbursementBank: true,
         actualCost: true,
         estimatedCost: true,
+        paymentStatus: true,
       },
     });
 
     if (rows.length !== cleanIds.length) {
-      throw new Error("仅待打款审批单据可批准，请刷新后重试");
+      throw new Error("部分采购单不存在，请刷新后重试");
+    }
+
+    const isPublicPayment = rows.every((row) =>
+      PUBLIC_PAYMENT_PENDING_STATUSES.includes(row.paymentStatus)
+    );
+    const isReimbursement = rows.every((row) =>
+      REIMBURSEMENT_PENDING_STATUSES.includes(row.paymentStatus)
+    );
+
+    if (!isPublicPayment && !isReimbursement) {
+      throw new Error("请勿混合审批对公打款与个人报销单据");
     }
 
     const updated = await tx.purchaseRequest.updateMany({
-      where: { id: { in: cleanIds }, paymentStatus: { in: ["PENDING_FUNDS", "APPROVING"] } },
+      where: {
+        id: { in: cleanIds },
+        paymentStatus: {
+          in: isReimbursement
+            ? REIMBURSEMENT_PENDING_STATUSES
+            : PUBLIC_PAYMENT_PENDING_STATUSES,
+        },
+      },
       data: {
-        paymentStatus: "APPROVED_FUNDS",
+        paymentStatus: isReimbursement
+          ? "APPROVED_REIMBURSEMENT"
+          : "APPROVED_FUNDS",
         paymentApprovedAt: approvedAt,
       },
     });
 
     if (updated.count !== cleanIds.length) {
-      throw new Error("部分采购单打款审批失败，请刷新后重试");
+      throw new Error("部分采购单审批失败，请刷新后重试");
     }
 
     return rows;
   });
 
+  const isReimbursement = selected.every((row) =>
+    REIMBURSEMENT_PENDING_STATUSES.includes(row.paymentStatus)
+  );
   const supplierName =
     selected.find((row) => row.supplierName?.trim())?.supplierName?.trim() ??
     "未记录供应商";
+  const reimbursementName =
+    selected.find((row) => row.reimbursementName?.trim())?.reimbursementName?.trim() ??
+    "未记录报销人";
   const totalAmount = selected.reduce(
     (sum, row) => sum + resolvePaymentAmount(row),
     0
@@ -393,22 +540,32 @@ export async function approveBatchPaymentAction(ids: string[]) {
 
   await createLog(
     session.name,
-    "批准打款",
+    isReimbursement ? "批准报销" : "批准打款",
     "物品采购",
-    `批准 ${cleanIds.length} 张采购单打款：${selected
+    `批准 ${cleanIds.length} 张采购单${isReimbursement ? "报销" : "打款"}：${selected
       .map((row) => row.requestNo)
       .join("、")}`
   );
 
   revalidatePath("/purchases");
 
-  void sendWeComMessage(
-    `✅ **老板已批准打款**\n` +
-      `供应商：${supplierName}\n` +
-      `批准单数：${cleanIds.length} 单\n` +
-      `批准金额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
-      `<font color="info">@财务</font> 老板已批准给 ${supplierName} 供方打款，请财务执行。`
-  );
+  if (isReimbursement) {
+    void sendWeComMessage(
+      `✅ **老板已批准采购垫付报销**\n` +
+        `报销人：${reimbursementName}\n` +
+        `批准单数：${cleanIds.length} 单\n` +
+        `批准金额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+        `<font color="info">@财务</font> 老板已批准采购 ${reimbursementName} 的报销申请，请财务打款。`
+    );
+  } else {
+    void sendWeComMessage(
+      `✅ **老板已批准打款**\n` +
+        `供应商：${supplierName}\n` +
+        `批准单数：${cleanIds.length} 单\n` +
+        `批准金额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+        `<font color="info">@财务</font> 老板已批准给 ${supplierName} 供方打款，请财务执行。`
+    );
+  }
 }
 
 export async function financeConfirmPaymentAction(ids: string[]) {
@@ -427,35 +584,63 @@ export async function financeConfirmPaymentAction(ids: string[]) {
 
   const selected = await prisma.$transaction(async (tx) => {
     const rows = await tx.purchaseRequest.findMany({
-      where: { id: { in: cleanIds }, paymentStatus: "APPROVED_FUNDS" },
+      where: { id: { in: cleanIds } },
       select: {
         id: true,
         requestNo: true,
         supplierName: true,
+        reimbursementName: true,
+        reimbursementCard: true,
+        reimbursementBank: true,
         actualCost: true,
         estimatedCost: true,
+        paymentStatus: true,
       },
     });
 
     if (rows.length !== cleanIds.length) {
-      throw new Error("仅老板已批准打款的单据可确认付款，请刷新后重试");
+      throw new Error("部分采购单不存在，请刷新后重试");
+    }
+
+    const isPublicPayment = rows.every((row) =>
+      PUBLIC_PAYMENT_APPROVED_STATUSES.includes(row.paymentStatus)
+    );
+    const isReimbursement = rows.every((row) =>
+      REIMBURSEMENT_APPROVED_STATUSES.includes(row.paymentStatus)
+    );
+
+    if (!isPublicPayment && !isReimbursement) {
+      throw new Error("请勿混合确认对公打款与个人报销单据");
     }
 
     const updated = await tx.purchaseRequest.updateMany({
-      where: { id: { in: cleanIds }, paymentStatus: "APPROVED_FUNDS" },
-      data: { paymentStatus: "PAID" },
+      where: {
+        id: { in: cleanIds },
+        paymentStatus: {
+          in: isReimbursement
+            ? REIMBURSEMENT_APPROVED_STATUSES
+            : PUBLIC_PAYMENT_APPROVED_STATUSES,
+        },
+      },
+      data: { paymentStatus: isReimbursement ? "REIMBURSED" : "PAID" },
     });
 
     if (updated.count !== cleanIds.length) {
-      throw new Error("部分采购单付款状态更新失败，请刷新后重试");
+      throw new Error("部分采购单打款状态更新失败，请刷新后重试");
     }
 
     return rows;
   });
 
+  const isReimbursement = selected.every((row) =>
+    REIMBURSEMENT_APPROVED_STATUSES.includes(row.paymentStatus)
+  );
   const supplierName =
     selected.find((row) => row.supplierName?.trim())?.supplierName?.trim() ??
     "未记录供应商";
+  const reimbursementName =
+    selected.find((row) => row.reimbursementName?.trim())?.reimbursementName?.trim() ??
+    "未记录报销人";
   const totalAmount = selected.reduce(
     (sum, row) => sum + resolvePaymentAmount(row),
     0
@@ -463,22 +648,32 @@ export async function financeConfirmPaymentAction(ids: string[]) {
 
   await createLog(
     session.name,
-    "财务确认打款",
+    isReimbursement ? "财务确认报销打款" : "财务确认打款",
     "物品采购",
-    `财务确认 ${cleanIds.length} 张采购单已打款：${selected
+    `财务确认 ${cleanIds.length} 张采购单${isReimbursement ? "已报销打款" : "已打款"}：${selected
       .map((row) => row.requestNo)
       .join("、")}`
   );
 
   revalidatePath("/purchases");
 
-  void sendWeComMessage(
-    buildBatchPaymentCompletedMessage({
-      supplierName,
-      requestCount: cleanIds.length,
-      totalAmount,
-    })
-  );
+  if (isReimbursement) {
+    void sendWeComMessage(
+      `✅ **个人垫付报销款已到账**\n` +
+        `报销人：${reimbursementName}\n` +
+        `报销单数：${cleanIds.length} 单\n` +
+        `报销总额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
+        `<font color="info">@${reimbursementName}</font> 您的采购个人垫付报销款已打入账户，请查收。`
+    );
+  } else {
+    void sendWeComMessage(
+      buildBatchPaymentCompletedMessage({
+        supplierName,
+        requestCount: cleanIds.length,
+        totalAmount,
+      })
+    );
+  }
 }
 
 export async function getHistoricalSupplierInfoAction(supplierName: string) {
@@ -532,6 +727,59 @@ export async function getHistoricalSupplierNamesAction() {
   return records
     .map((record) => record.supplierName?.trim())
     .filter((name): name is string => Boolean(name));
+}
+
+export async function getHistoricalReimbursementInfoAction(name: string) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+
+  const reimbursementName = name.trim();
+  if (!reimbursementName) return null;
+
+  const record = await prisma.purchaseRequest.findFirst({
+    where: {
+      reimbursementName,
+      reimbursementCard: { not: null },
+      reimbursementBank: { not: null },
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      reimbursementCard: true,
+      reimbursementBank: true,
+    },
+  });
+
+  if (!record?.reimbursementCard?.trim() || !record.reimbursementBank?.trim()) {
+    return null;
+  }
+
+  return {
+    card: record.reimbursementCard,
+    bank: record.reimbursementBank,
+  };
+}
+
+export async function getHistoricalReimbursementNamesAction() {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+
+  const records = await prisma.purchaseRequest.findMany({
+    where: {
+      reimbursementName: { not: null },
+      reimbursementCard: { not: null },
+      reimbursementBank: { not: null },
+    },
+    orderBy: { updatedAt: "desc" },
+    distinct: ["reimbursementName"],
+    select: {
+      reimbursementName: true,
+    },
+    take: 50,
+  });
+
+  return records
+    .map((record) => record.reimbursementName?.trim())
+    .filter((value): value is string => Boolean(value));
 }
 
 export async function markAsContracted(ids: string[]) {
@@ -805,8 +1053,8 @@ export async function updateSupplierInfoAction(
 
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("采购单不存在");
-  if (row.paymentStatus === "PAID") {
-    throw new Error("已付款单据禁止修改供应商信息");
+  if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
+    throw new Error("已完成付款或报销的单据禁止修改供应商信息");
   }
 
   const supplierName = data.supplierName.trim();
@@ -939,8 +1187,8 @@ export async function updatePurchaseActualCostAction(
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("请购单不存在");
 
-  if (row.paymentStatus === "PAID") {
-    throw new Error("已付款单据无法修改金额");
+  if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
+    throw new Error("已完成付款或报销的单据无法修改金额");
   }
 
   await prisma.purchaseRequest.update({

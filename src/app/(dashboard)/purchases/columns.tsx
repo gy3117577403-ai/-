@@ -52,7 +52,10 @@ const paymentBadge: Record<
   APPROVING: { label: "待打款审批", className: "bg-orange-500/90 text-white" },
   PENDING_FUNDS: { label: "待打款审批", className: "bg-orange-500/90 text-white" },
   APPROVED_FUNDS: { label: "待财务打款", className: "bg-cyan-600/90 text-white" },
+  PENDING_REIMBURSEMENT: { label: "待报销审批", className: "bg-amber-500/90 text-white" },
+  APPROVED_REIMBURSEMENT: { label: "待财务报销", className: "bg-blue-600/90 text-white" },
   PAID: { label: "已付款", className: "bg-emerald-600/90 text-white" },
+  REIMBURSED: { label: "已报销完成", className: "bg-emerald-600/90 text-white" },
 };
 
 const LARGE_AMOUNT = 500;
@@ -215,7 +218,8 @@ export function getColumns(options: {
         const value = row.getValue("actualCost") as number | null;
         const canEdit =
           (role === "ADMIN" || role === "PURCHASER") &&
-          req.paymentStatus !== "PAID";
+          req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "REIMBURSED";
         const display =
           value != null && Number.isFinite(value) ? `￥${value.toFixed(2)}` : "-";
 
@@ -259,10 +263,13 @@ export function getColumns(options: {
         const value = (row.getValue("supplierName") as string | null)?.trim();
         const canEdit =
           (role === "ADMIN" || role === "PURCHASER") &&
-          req.paymentStatus !== "PAID";
+          req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "REIMBURSED";
         const warnBeforePayment =
           req.paymentStatus === "PENDING_FUNDS" ||
-          req.paymentStatus === "APPROVED_FUNDS";
+          req.paymentStatus === "APPROVED_FUNDS" ||
+          req.paymentStatus === "PENDING_REIMBURSEMENT" ||
+          req.paymentStatus === "APPROVED_REIMBURSEMENT";
         const changedAfterApproval = hasSupplierChangeAfterApproval(req);
         const editButtonClass = warnBeforePayment
           ? "text-amber-600 hover:bg-amber-50 hover:text-amber-700"
@@ -349,11 +356,20 @@ export function getColumns(options: {
         if (!filterValue) return true;
         if (filterValue === "__pending_funds__") {
           const status = row.getValue("paymentStatus");
-          return status === "PENDING_FUNDS" || status === "APPROVING";
+          return (
+            status === "PENDING_FUNDS" ||
+            status === "APPROVING" ||
+            status === "PENDING_REIMBURSEMENT"
+          );
         }
         if (filterValue === "__finance__") {
           const status = row.getValue("paymentStatus");
-          return status === "APPROVED_FUNDS" || status === "PAID";
+          return (
+            status === "APPROVED_FUNDS" ||
+            status === "APPROVED_REIMBURSEMENT" ||
+            status === "PAID" ||
+            status === "REIMBURSED"
+          );
         }
         return row.getValue("paymentStatus") === filterValue;
       },
@@ -478,10 +494,12 @@ export function getColumns(options: {
         const showMarkAsPaid =
           (role === "BOSS" || role === "ADMIN") &&
           (req.status === "ORDERED" || req.status === "RECEIVED") &&
-          req.paymentStatus !== "PAID";
+          req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "REIMBURSED";
         const canEditActualCost =
           (role === "ADMIN" || role === "PURCHASER") &&
-          req.paymentStatus !== "PAID";
+          req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "REIMBURSED";
         const showEditInvoice =
           (role === "ADMIN" || role === "BOSS" || role === "PURCHASER") &&
           (req.status === "ORDERED" || req.status === "RECEIVED");

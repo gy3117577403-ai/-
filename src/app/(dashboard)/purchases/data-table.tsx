@@ -36,6 +36,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   FileText,
+  ReceiptText,
   Search,
   ThumbsUp,
   XCircle,
@@ -58,6 +59,7 @@ interface DataTableProps<TData, TValue> {
   onBatchReject?: (rows: TData[]) => void;
   onBatchContract?: (rows: TData[]) => void;
   onBatchPayment?: (rows: TData[]) => void;
+  onBatchReimbursement?: (rows: TData[]) => void;
   onApproveBatchPayment?: (rows: TData[]) => void;
   onFinanceConfirmPayment?: (rows: TData[]) => void;
 }
@@ -80,6 +82,7 @@ export function DataTable<TData, TValue>({
   onBatchReject,
   onBatchContract,
   onBatchPayment,
+  onBatchReimbursement,
   onApproveBatchPayment,
   onFinanceConfirmPayment,
 }: DataTableProps<TData, TValue>) {
@@ -131,6 +134,34 @@ export function DataTable<TData, TValue>({
     .getFilteredSelectedRowModel()
     .rows.map((row) => row.original);
   const hasSelection = selectedRows.length > 0;
+  const selectedPaymentStatuses = selectedRows.map(
+    (row) => (row as { paymentStatus?: string }).paymentStatus
+  );
+  const isSelectedReimbursementApproval =
+    hasSelection &&
+    selectedPaymentStatuses.every((status) => status === "PENDING_REIMBURSEMENT");
+  const isSelectedReimbursementFinance =
+    hasSelection &&
+    selectedPaymentStatuses.every((status) => status === "APPROVED_REIMBURSEMENT");
+  const canSubmitSelectedPayment =
+    hasSelection && selectedPaymentStatuses.every((status) => status === "UNPAID");
+  const canSubmitSelectedReimbursement =
+    hasSelection &&
+    selectedRows.every((row) => {
+      const item = row as { settlementType?: string | null; paymentStatus?: string };
+      return (
+        (!item.settlementType || item.settlementType === "采购垫付") &&
+        ![
+          "PENDING_FUNDS",
+          "APPROVING",
+          "APPROVED_FUNDS",
+          "PENDING_REIMBURSEMENT",
+          "APPROVED_REIMBURSEMENT",
+          "PAID",
+          "REIMBURSED",
+        ].includes(item.paymentStatus ?? "")
+      );
+    });
   const filteredRows = table.getFilteredRowModel().rows;
   const totalActualCost =
     filteredRows.reduce((sum, row) => {
@@ -147,10 +178,12 @@ export function DataTable<TData, TValue>({
         paymentApprovedAt?: Date | string | null;
         updatedAt?: Date | string | null;
       };
+      if (!item.paymentApprovedAt || !item.updatedAt) {
+        return false;
+      }
       if (
-        item.paymentStatus !== "APPROVED_FUNDS" ||
-        !item.paymentApprovedAt ||
-        !item.updatedAt
+        item.paymentStatus !== "APPROVED_FUNDS" &&
+        item.paymentStatus !== "APPROVED_REIMBURSEMENT"
       ) {
         return false;
       }
@@ -279,7 +312,7 @@ export function DataTable<TData, TValue>({
               onClick={() => onApproveBatchPayment(selectedRows)}
             >
               <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              批准打款 ({selectedRows.length})
+              {isSelectedReimbursementApproval ? "批准报销" : "批准打款"} ({selectedRows.length})
             </Button>
           )}
 
@@ -291,7 +324,7 @@ export function DataTable<TData, TValue>({
               onClick={() => onFinanceConfirmPayment(selectedRows)}
             >
               <CircleDollarSign className="mr-1.5 h-4 w-4" />
-              确认已打款 ({selectedRows.length})
+              {isSelectedReimbursementFinance ? "确认报销打款" : "确认已打款"} ({selectedRows.length})
             </Button>
           )}
 
@@ -312,11 +345,32 @@ export function DataTable<TData, TValue>({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!hasSelection}
+                  disabled={!canSubmitSelectedPayment}
                   onClick={() => onBatchPayment(selectedRows)}
+                  title={
+                    hasSelection
+                      ? "仅未进入资金流程的单据可发起对公请款"
+                      : "请先勾选单据"
+                  }
                 >
                   <CircleDollarSign className="mr-1.5 h-4 w-4" />
                   申请合并请款 ({selectedRows.length})
+                </Button>
+              )}
+              {onBatchReimbursement && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!canSubmitSelectedReimbursement}
+                  onClick={() => onBatchReimbursement(selectedRows)}
+                  title={
+                    hasSelection
+                      ? "未进入资金流程的单据可合并报销，提交后结算方式将标记为采购垫付"
+                      : "请先勾选采购垫付单据"
+                  }
+                >
+                  <ReceiptText className="mr-1.5 h-4 w-4" />
+                  申请合并报销 ({selectedRows.length})
                 </Button>
               )}
             </>
@@ -347,6 +401,7 @@ export function DataTable<TData, TValue>({
               <SelectItem value="all">全部结算</SelectItem>
               <SelectItem value="月结">月结</SelectItem>
               <SelectItem value="对公现结">对公现结</SelectItem>
+              <SelectItem value="采购垫付">采购垫付</SelectItem>
             </SelectContent>
           </Select>
 
@@ -364,7 +419,7 @@ export function DataTable<TData, TValue>({
 
       {hasSupplierRiskInFinance && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          检测到部分单据在老板批准打款后仍发生过信息变动，请财务打款前重点复核供应商名称、对公账号与开户行。
+          检测到部分单据在老板批准后仍发生过信息变动，请财务打款前重点复核供应商或报销账户信息。
         </div>
       )}
 
