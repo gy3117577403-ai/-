@@ -143,6 +143,10 @@ export function DataTable<TData, TValue>({
   const isSelectedReimbursementFinance =
     hasSelection &&
     selectedPaymentStatuses.every((status) => status === "APPROVED_REIMBURSEMENT");
+  const canUsePurchaseFollowupActions =
+    activeTab === "pending_action" ||
+    activeTab === "completed" ||
+    activeTab === "all";
   const canSubmitSelectedPayment =
     hasSelection && selectedPaymentStatuses.every((status) => status === "UNPAID");
   const canSubmitSelectedReimbursement =
@@ -150,7 +154,7 @@ export function DataTable<TData, TValue>({
     selectedRows.every((row) => {
       const item = row as { settlementType?: string | null; paymentStatus?: string };
       return (
-        (!item.settlementType || item.settlementType === "采购垫付") &&
+        item.settlementType === "采购垫付" &&
         ![
           "PENDING_FUNDS",
           "APPROVING",
@@ -162,6 +166,7 @@ export function DataTable<TData, TValue>({
         ].includes(item.paymentStatus ?? "")
       );
     });
+  const canShowBatchContract = canUsePurchaseFollowupActions && hasSelection;
   const filteredRows = table.getFilteredRowModel().rows;
   const totalActualCost =
     filteredRows.reduce((sum, row) => {
@@ -328,20 +333,19 @@ export function DataTable<TData, TValue>({
             </Button>
           )}
 
-          {activeTab === "pending_action" && (
+          {canUsePurchaseFollowupActions && (
             <>
-              {onBatchContract && (
+              {onBatchContract && canShowBatchContract && (
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!hasSelection}
                   onClick={() => onBatchContract(selectedRows)}
                 >
                   <FileText className="mr-1.5 h-4 w-4" />
                   生成合并合同 ({selectedRows.length})
                 </Button>
               )}
-              {onBatchPayment && (
+              {activeTab === "pending_action" && onBatchPayment && (
                 <Button
                   type="button"
                   variant="outline"
@@ -357,15 +361,14 @@ export function DataTable<TData, TValue>({
                   申请合并请款 ({selectedRows.length})
                 </Button>
               )}
-              {onBatchReimbursement && (
+              {onBatchReimbursement && canSubmitSelectedReimbursement && (
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!canSubmitSelectedReimbursement}
                   onClick={() => onBatchReimbursement(selectedRows)}
                   title={
                     hasSelection
-                      ? "未进入资金流程的单据可合并报销，提交后结算方式将标记为采购垫付"
+                      ? "采购垫付且未进入资金或报销流程的单据可合并报销"
                       : "请先勾选采购垫付单据"
                   }
                 >
