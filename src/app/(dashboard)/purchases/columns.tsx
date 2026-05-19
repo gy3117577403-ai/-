@@ -142,10 +142,16 @@ function SettlementTypeCell({
       >
         <SelectTrigger
           size="sm"
-          className="h-7 w-[80px] rounded-md px-2 text-xs"
+          className="h-8 w-full border-0 bg-transparent shadow-none hover:bg-accent focus:ring-0 px-2 flex justify-between items-center text-sm focus-visible:border-transparent focus-visible:ring-0"
           title="修改结算方式"
         >
-          <SelectValue placeholder="选择" />
+          {value ? (
+            <SelectValue />
+          ) : (
+            <span className="border-b border-dashed border-gray-300 text-xs text-muted-foreground">
+              点击设置
+            </span>
+          )}
         </SelectTrigger>
         <SelectContent align="center" className="min-w-28">
           {SETTLEMENT_TYPE_OPTIONS.map((option) => (
