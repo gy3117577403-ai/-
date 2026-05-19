@@ -237,7 +237,7 @@ export function getColumns(options: {
     {
       accessorKey: "itemName",
       header: () => (
-        <span className="block min-w-[200px] max-w-[300px] whitespace-normal break-words">
+        <span className="block min-w-[200px] max-w-[350px] break-words">
           物资名称
         </span>
       ),
@@ -246,25 +246,29 @@ export function getColumns(options: {
         const url = row.original.link?.trim();
         if (url) {
           return (
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-w-[200px] max-w-[300px] items-start gap-1 whitespace-normal break-words font-mono text-sm font-medium text-blue-600 hover:underline"
+            <div
+              className="min-w-[200px] max-w-[350px] break-words whitespace-normal font-mono text-sm font-medium"
               title={itemName}
             >
-              <span className="min-w-0 break-words">{itemName}</span>
-              <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
-            </a>
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-start gap-1 leading-snug text-blue-600 hover:underline"
+              >
+                <span className="mt-0.5">{itemName}</span>
+                <ExternalLink className="mt-1 h-3.5 w-3.5 flex-shrink-0" />
+              </a>
+            </div>
           );
         }
         return (
-          <span
-            className="block min-w-[200px] max-w-[300px] whitespace-normal break-words font-mono text-sm font-medium"
+          <div
+            className="min-w-[200px] max-w-[350px] break-words whitespace-normal font-mono text-sm font-medium"
             title={itemName}
           >
-            {itemName}
-          </span>
+            <span className="leading-snug">{itemName}</span>
+          </div>
         );
       },
     },
