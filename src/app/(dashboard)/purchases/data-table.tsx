@@ -270,7 +270,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="w-full space-y-4">
-      <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="sticky top-16 z-30 -mx-1 flex w-[calc(100%+0.5rem)] flex-col gap-3 border-b border-slate-200 bg-slate-50/95 px-1 py-2 shadow-sm backdrop-blur xl:flex-row xl:items-center xl:justify-between">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList>
             {workspaceTabs.map((tab) => (
@@ -428,7 +428,7 @@ export function DataTable<TData, TValue>({
 
       <div className="w-full rounded-md border bg-white">
         <Table className="w-full">
-          <TableHeader>
+          <TableHeader className="sticky top-[7.5rem] z-20 bg-white shadow-[0_1px_0_0_rgba(226,232,240,1)]">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (

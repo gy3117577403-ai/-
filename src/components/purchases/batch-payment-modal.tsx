@@ -28,6 +28,7 @@ import { toast } from "sonner";
 
 type BatchPaymentModalProps = {
   selectedIds: string[];
+  detailTotalAmount: number;
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -40,6 +41,7 @@ type AutoFilledInfo = {
 
 export function BatchPaymentModal({
   selectedIds,
+  detailTotalAmount,
   onClose,
   onSuccess,
 }: BatchPaymentModalProps) {
@@ -47,6 +49,7 @@ export function BatchPaymentModal({
   const [supplierName, setSupplierName] = useState("");
   const [supplierAccount, setSupplierAccount] = useState("");
   const [supplierBank, setSupplierBank] = useState("");
+  const [confirmedAmount, setConfirmedAmount] = useState("");
   const [supplierNames, setSupplierNames] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
   const [isLookupPending, startLookupTransition] = useTransition();
@@ -59,8 +62,18 @@ export function BatchPaymentModal({
       settlementType.trim() &&
       supplierName.trim() &&
       supplierAccount.trim() &&
-      supplierBank.trim()
+      supplierBank.trim() &&
+      Number.isFinite(Number(confirmedAmount)) &&
+      Number(confirmedAmount) > 0
   );
+  const isAdvancePayment = settlementType === "采购垫付";
+  const normalizedDetailTotal = Math.round(detailTotalAmount * 100) / 100;
+  const normalizedConfirmedAmount = Number.isFinite(Number(confirmedAmount))
+    ? Math.round(Number(confirmedAmount) * 100) / 100
+    : 0;
+  const amountMismatch =
+    normalizedConfirmedAmount > 0 &&
+    Math.abs(normalizedConfirmedAmount - normalizedDetailTotal) >= 0.01;
 
   useEffect(() => {
     if (selectedIds.length === 0) return;
@@ -76,6 +89,16 @@ export function BatchPaymentModal({
   }, [selectedIds.length]);
 
   useEffect(() => {
+    queueMicrotask(() => {
+      if (!selectedIds.length) {
+        setConfirmedAmount("");
+        return;
+      }
+      setConfirmedAmount(normalizedDetailTotal > 0 ? normalizedDetailTotal.toFixed(2) : "");
+    });
+  }, [normalizedDetailTotal, selectedIds.length]);
+
+  useEffect(() => {
     supplierAccountRef.current = supplierAccount;
   }, [supplierAccount]);
 
@@ -85,6 +108,7 @@ export function BatchPaymentModal({
 
   useEffect(() => {
     const name = supplierName.trim();
+    if (isAdvancePayment) return;
     if (!name) return;
 
     const timer = window.setTimeout(() => {
@@ -121,7 +145,7 @@ export function BatchPaymentModal({
     }, 350);
 
     return () => window.clearTimeout(timer);
-  }, [supplierName]);
+  }, [isAdvancePayment, supplierName]);
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -133,8 +157,13 @@ export function BatchPaymentModal({
           supplierName,
           supplierAccount,
           supplierBank,
+          confirmedAmount: normalizedConfirmedAmount,
         });
-        toast.success(`已发起 ${selectedIds.length} 单合并请款`);
+        toast.success(
+          isAdvancePayment
+            ? `已发起 ${selectedIds.length} 单合并报销`
+            : `已发起 ${selectedIds.length} 单合并请款`
+        );
         onSuccess();
         onClose();
       } catch (e) {
@@ -166,37 +195,81 @@ export function BatchPaymentModal({
               <SelectContent>
                 <SelectItem value="月结">月结</SelectItem>
                 <SelectItem value="对公现结">对公现结</SelectItem>
+                <SelectItem value="采购垫付">采购垫付</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>订单实际总金额</Label>
+              <div className="flex h-9 items-center rounded-md border bg-slate-50 px-3 text-sm font-medium tabular-nums text-slate-700">
+                ￥{normalizedDetailTotal.toFixed(2)}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="batch-payment-confirmed-amount">
+                确认请款金额
+              </Label>
+              <Input
+                id="batch-payment-confirmed-amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={confirmedAmount}
+                onChange={(event) => setConfirmedAmount(event.target.value)}
+                onBlur={() => {
+                  const amount = Number(confirmedAmount);
+                  if (Number.isFinite(amount) && amount > 0) {
+                    setConfirmedAmount((Math.round(amount * 100) / 100).toFixed(2));
+                  }
+                }}
+                placeholder="0.00"
+                disabled={isPending}
+              />
+            </div>
+          </div>
+
+          {amountMismatch && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+              确认金额与订单实际总金额不一致，请核对后提交。
+            </div>
+          )}
+
           <div className="space-y-2">
-            <Label htmlFor="batch-payment-supplier">供方名称</Label>
+            <Label htmlFor="batch-payment-supplier">
+              {isAdvancePayment ? "报销收款人" : "供方名称"}
+            </Label>
             <Input
               id="batch-payment-supplier"
-              list="batch-payment-supplier-list"
+              list={isAdvancePayment ? undefined : "batch-payment-supplier-list"}
               value={supplierName}
               onChange={(event) => setSupplierName(event.target.value)}
-              placeholder="请输入供应商名称"
+              placeholder={isAdvancePayment ? "请输入收款人姓名" : "请输入供应商名称"}
               disabled={isPending}
             />
-            <datalist id="batch-payment-supplier-list">
-              {supplierNames.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
-            {isLookupPending && (
+            {!isAdvancePayment && (
+              <datalist id="batch-payment-supplier-list">
+                {supplierNames.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+            )}
+            {!isAdvancePayment && isLookupPending && (
               <p className="text-xs text-slate-400">正在查询历史账户信息...</p>
             )}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="batch-payment-account">对公账号</Label>
+            <Label htmlFor="batch-payment-account">
+              {isAdvancePayment ? "银行卡号" : "对公账号"}
+            </Label>
             <Input
               id="batch-payment-account"
+              inputMode={isAdvancePayment ? "numeric" : undefined}
               value={supplierAccount}
               onChange={(event) => setSupplierAccount(event.target.value)}
-              placeholder="请输入供方对公账号"
+              placeholder={isAdvancePayment ? "请输入银行卡号" : "请输入供方对公账号"}
               disabled={isPending}
             />
           </div>
@@ -207,7 +280,7 @@ export function BatchPaymentModal({
               id="batch-payment-bank"
               value={supplierBank}
               onChange={(event) => setSupplierBank(event.target.value)}
-              placeholder="请输入供方开户行"
+              placeholder={isAdvancePayment ? "请输入收款人开户行" : "请输入供方开户行"}
               disabled={isPending}
             />
           </div>
@@ -227,7 +300,7 @@ export function BatchPaymentModal({
             onClick={handleSubmit}
             disabled={!canSubmit || isPending}
           >
-            {isPending ? "提交中..." : "提交请款"}
+            {isPending ? "提交中..." : isAdvancePayment ? "提交报销" : "提交请款"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -31,6 +31,7 @@ type BatchPaymentRequestInput = {
   supplierName: string;
   supplierAccount: string;
   supplierBank: string;
+  confirmedAmount?: number;
 };
 
 type BatchReimbursementInput = {
@@ -289,8 +290,32 @@ export async function createBatchPaymentRequest(
   const supplierName = paymentData.supplierName.trim();
   const supplierAccount = paymentData.supplierAccount.trim();
   const supplierBank = paymentData.supplierBank.trim();
+  const allowedSettlementTypes = ["月结", "对公现结", "采购垫付"];
+  const confirmedAmount =
+    paymentData.confirmedAmount === undefined
+      ? undefined
+      : roundMoney(Number(paymentData.confirmedAmount));
 
   if (!settlementType) throw new Error("请选择结算方式");
+  if (!allowedSettlementTypes.includes(settlementType)) {
+    throw new Error("结算方式无效");
+  }
+  if (
+    confirmedAmount !== undefined &&
+    (!Number.isFinite(confirmedAmount) || confirmedAmount <= 0)
+  ) {
+    throw new Error("确认请款金额必须大于 0");
+  }
+
+  if (settlementType === "采购垫付") {
+    return submitBatchReimbursementAction(cleanIds, {
+      name: supplierName,
+      card: supplierAccount,
+      bank: supplierBank,
+      confirmedAmount: confirmedAmount ?? 0,
+    });
+  }
+
   if (!supplierName) throw new Error("请填写供方名称");
   if (!supplierAccount) throw new Error("请填写对公账号");
   if (!supplierBank) throw new Error("请填写开户行");
@@ -334,10 +359,11 @@ export async function createBatchPaymentRequest(
     return rows;
   });
 
-  const totalAmount = selected.reduce(
+  const detailTotalAmount = selected.reduce(
     (sum, row) => sum + resolvePaymentAmount(row),
     0
   );
+  const totalAmount = confirmedAmount ?? detailTotalAmount;
   const baseUrl = resolveAppBaseUrl();
   const paymentUrl = baseUrl ? `${baseUrl}/purchases` : "/purchases";
 
@@ -357,7 +383,9 @@ export async function createBatchPaymentRequest(
     session.name,
     "合并请款",
     "物品采购",
-    `合并发起 ${cleanIds.length} 张采购单请款：${selected
+    `合并发起 ${cleanIds.length} 张采购单请款，明细合计 ${detailTotalAmount.toFixed(
+      2
+    )} 元，确认请款金额 ${totalAmount.toFixed(2)} 元：${selected
       .map((row) => row.requestNo)
       .join("、")}`
   );

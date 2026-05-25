@@ -112,32 +112,48 @@ function hasSupplierChangeAfterApproval(row: PurchaseRequest) {
   );
 }
 
-function RequestNoCell({ requestNo }: { requestNo: string }) {
+function RequestNoCell({
+  requestNo,
+  expandAll,
+  collapseSignal,
+}: {
+  requestNo: string;
+  expandAll: boolean;
+  collapseSignal: number;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const isExpanded = expandAll || expanded;
+
+  useEffect(() => {
+    if (!expandAll) {
+      queueMicrotask(() => setExpanded(false));
+    }
+  }, [collapseSignal, expandAll]);
 
   return (
     <div className="flex w-[96px] items-start gap-1 font-mono text-xs text-muted-foreground">
       <span
         className={
-          expanded
+          isExpanded
             ? "max-w-[160px] break-all whitespace-normal leading-snug"
             : "w-[64px] truncate"
         }
         title={requestNo}
       >
-        {expanded ? requestNo : compactRequestNo(requestNo)}
+        {isExpanded ? requestNo : compactRequestNo(requestNo)}
       </span>
       <button
         type="button"
         className="mt-[-2px] rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-        title={expanded ? "收起单号" : "展开完整单号"}
-        aria-label={expanded ? "收起单号" : "展开完整单号"}
+        title={isExpanded ? "收起单号" : "展开完整单号"}
+        aria-label={isExpanded ? "收起单号" : "展开完整单号"}
         onClick={(event) => {
           event.stopPropagation();
+          if (expandAll) return;
           setExpanded((value) => !value);
         }}
       >
-        {expanded ? (
+        {isExpanded ? (
           <ChevronsLeft className="h-3.5 w-3.5" />
         ) : (
           <ChevronsRight className="h-3.5 w-3.5" />
@@ -247,8 +263,12 @@ export function getColumns(options: {
   onPrintContract: (row: PurchaseRequest) => void;
   onAdminEditCost: (row: PurchaseRequest) => void;
   onEditSupplier: (row: PurchaseRequest) => void;
+  requestNoExpandedAll?: boolean;
+  requestNoCollapseSignal?: number;
 }): ColumnDef<PurchaseRequest>[] {
   const { role, sessionName, sessionUserId } = options;
+  const requestNoExpandedAll = options.requestNoExpandedAll ?? false;
+  const requestNoCollapseSignal = options.requestNoCollapseSignal ?? 0;
 
   return [
     {
@@ -288,7 +308,13 @@ export function getColumns(options: {
       ),
       cell: ({ row }) => {
         const requestNo = row.getValue("requestNo") as string;
-        return <RequestNoCell requestNo={requestNo} />;
+        return (
+          <RequestNoCell
+            requestNo={requestNo}
+            expandAll={requestNoExpandedAll}
+            collapseSignal={requestNoCollapseSignal}
+          />
+        );
       },
     },
     {

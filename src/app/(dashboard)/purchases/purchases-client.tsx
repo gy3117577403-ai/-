@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { PaymentStatus, PurchaseRequest, PurchaseStatus } from "@prisma/client";
 import type { Table } from "@tanstack/react-table";
 import * as XLSX from "xlsx";
-import { FilePlus2, Download } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Download, FilePlus2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -175,8 +175,10 @@ export function PurchasesClient({
   const tableRef = useRef<Table<PurchaseRequest> | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [batchContractIds, setBatchContractIds] = useState<string[]>([]);
-  const [batchPaymentIds, setBatchPaymentIds] = useState<string[]>([]);
+  const [batchPaymentRows, setBatchPaymentRows] = useState<PurchaseRequest[]>([]);
   const [reimbursementRows, setReimbursementRows] = useState<PurchaseRequest[]>([]);
+  const [requestNoExpandedAll, setRequestNoExpandedAll] = useState(false);
+  const [requestNoCollapseSignal, setRequestNoCollapseSignal] = useState(0);
   const [, startTransition] = useTransition();
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -428,7 +430,7 @@ export function PurchasesClient({
   }
 
   function handleBatchPayment(rows: PurchaseRequest[]) {
-    setBatchPaymentIds(rows.map((row) => row.id));
+    setBatchPaymentRows(rows);
   }
 
   function handleBatchReimbursement(rows: PurchaseRequest[]) {
@@ -554,6 +556,8 @@ export function PurchasesClient({
     onPrintContract: handlePrintContract,
     onAdminEditCost: handleAdminEditCost,
     onEditSupplier: handleEditSupplier,
+    requestNoExpandedAll,
+    requestNoCollapseSignal,
   });
 
   return (
@@ -573,6 +577,26 @@ export function PurchasesClient({
         tableRef={tableRef}
         globalActions={
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => {
+                setRequestNoExpandedAll((expanded) => {
+                  const next = !expanded;
+                  if (!next) {
+                    setRequestNoCollapseSignal((value) => value + 1);
+                  }
+                  return next;
+                });
+              }}
+            >
+              {requestNoExpandedAll ? (
+                <ChevronsLeft className="mr-1.5 h-4 w-4" />
+              ) : (
+                <ChevronsRight className="mr-1.5 h-4 w-4" />
+              )}
+              {requestNoExpandedAll ? "单号全部收起" : "单号全部显示"}
+            </Button>
             <Button variant="outline" type="button" onClick={handleExportExcel}>
               <Download className="mr-1.5 h-4 w-4" />
               导出当前数据
@@ -615,8 +639,9 @@ export function PurchasesClient({
       />
 
       <BatchPaymentModal
-        selectedIds={batchPaymentIds}
-        onClose={() => setBatchPaymentIds([])}
+        selectedIds={batchPaymentRows.map((row) => row.id)}
+        detailTotalAmount={calculatePaymentAmountTotal(batchPaymentRows)}
+        onClose={() => setBatchPaymentRows([])}
         onSuccess={handleBatchPaymentSuccess}
       />
 
