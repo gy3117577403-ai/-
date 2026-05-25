@@ -282,6 +282,12 @@ export function DataTable<TData, TValue>({
         </Tabs>
 
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-end">
+          {hasSelection && (
+            <div className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-600 shadow-sm">
+              已选 {selectedRows.length} 项
+            </div>
+          )}
+
           {activeTab === "purchase_approval" && (
             <>
               {onBatchApprove && (
@@ -432,7 +438,10 @@ export function DataTable<TData, TValue>({
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead
+                    key={header.id}
+                    className="sticky top-[7.5rem] z-20 bg-white"
+                  >
                     {header.isPlaceholder ? null : (
                       <button
                         type="button"

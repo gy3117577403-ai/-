@@ -329,6 +329,7 @@ export async function createBatchPaymentRequest(
         actualCost: true,
         estimatedCost: true,
         paymentStatus: true,
+        settlementType: true,
       },
     });
 
@@ -339,6 +340,9 @@ export async function createBatchPaymentRequest(
     const locked = rows.find((row) => row.paymentStatus !== "UNPAID");
     if (locked) {
       throw new Error("所选单据中存在已进入资金流程的记录，请勿重复提交请款");
+    }
+    if (rows.some((row) => row.settlementType === "采购垫付")) {
+      throw new Error("不能混选采购垫付和对公结算单据，请分开请款。");
     }
 
     const updated = await tx.purchaseRequest.updateMany({
@@ -426,6 +430,7 @@ export async function submitBatchReimbursementAction(
         actualCost: true,
         estimatedCost: true,
         paymentStatus: true,
+        settlementType: true,
       },
     });
 
@@ -446,6 +451,9 @@ export async function submitBatchReimbursementAction(
     );
     if (locked) {
       throw new Error("所选单据中存在已进入打款或报销流程的记录，请勿混合提交");
+    }
+    if (rows.some((row) => row.settlementType !== "采购垫付")) {
+      throw new Error("不能混选采购垫付和对公结算单据，请分开请款。");
     }
 
     const updated = await tx.purchaseRequest.updateMany({

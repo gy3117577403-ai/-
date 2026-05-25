@@ -81,6 +81,23 @@ function calculatePaymentAmountTotal(rows: PurchaseRequest[]) {
   );
 }
 
+function resolveBatchPaymentMode(rows: PurchaseRequest[]) {
+  if (!rows.length) return null;
+  const hasAdvance = rows.some((row) => row.settlementType === "采购垫付");
+  const hasPublic = rows.some((row) => row.settlementType !== "采购垫付");
+  if (hasAdvance && hasPublic) return "mixed";
+  return hasAdvance ? "advance" : "public";
+}
+
+function resolveBatchPaymentInitialSettlementType(rows: PurchaseRequest[]) {
+  const mode = resolveBatchPaymentMode(rows);
+  if (mode === "advance") return "采购垫付";
+  const publicType = rows.find(
+    (row) => row.settlementType === "对公现结" || row.settlementType === "月结"
+  )?.settlementType;
+  return publicType ?? "月结";
+}
+
 function resolvePurchaseClosureStatus(row: PurchaseRequest) {
   const invoiceNo = row.invoiceNo?.trim();
   const settled = row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED";
@@ -430,6 +447,10 @@ export function PurchasesClient({
   }
 
   function handleBatchPayment(rows: PurchaseRequest[]) {
+    if (resolveBatchPaymentMode(rows) === "mixed") {
+      toast.error("不能混选采购垫付和对公结算单据，请分开请款。");
+      return;
+    }
     setBatchPaymentRows(rows);
   }
 
@@ -580,22 +601,21 @@ export function PurchasesClient({
             <Button
               variant="outline"
               type="button"
+              onClick={() => setRequestNoExpandedAll(true)}
+            >
+              <ChevronsRight className="mr-1.5 h-4 w-4" />
+              单号全部显示
+            </Button>
+            <Button
+              variant="outline"
+              type="button"
               onClick={() => {
-                setRequestNoExpandedAll((expanded) => {
-                  const next = !expanded;
-                  if (!next) {
-                    setRequestNoCollapseSignal((value) => value + 1);
-                  }
-                  return next;
-                });
+                setRequestNoExpandedAll(false);
+                setRequestNoCollapseSignal((value) => value + 1);
               }}
             >
-              {requestNoExpandedAll ? (
-                <ChevronsLeft className="mr-1.5 h-4 w-4" />
-              ) : (
-                <ChevronsRight className="mr-1.5 h-4 w-4" />
-              )}
-              {requestNoExpandedAll ? "单号全部收起" : "单号全部显示"}
+              <ChevronsLeft className="mr-1.5 h-4 w-4" />
+              单号全部隐藏
             </Button>
             <Button variant="outline" type="button" onClick={handleExportExcel}>
               <Download className="mr-1.5 h-4 w-4" />
@@ -641,6 +661,12 @@ export function PurchasesClient({
       <BatchPaymentModal
         selectedIds={batchPaymentRows.map((row) => row.id)}
         detailTotalAmount={calculatePaymentAmountTotal(batchPaymentRows)}
+        initialSettlementType={resolveBatchPaymentInitialSettlementType(
+          batchPaymentRows
+        )}
+        allowAdvancePayment={
+          resolveBatchPaymentMode(batchPaymentRows) === "advance"
+        }
         onClose={() => setBatchPaymentRows([])}
         onSuccess={handleBatchPaymentSuccess}
       />

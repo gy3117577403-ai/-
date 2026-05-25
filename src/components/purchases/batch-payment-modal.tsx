@@ -29,6 +29,8 @@ import { toast } from "sonner";
 type BatchPaymentModalProps = {
   selectedIds: string[];
   detailTotalAmount: number;
+  initialSettlementType: string;
+  allowAdvancePayment: boolean;
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -42,6 +44,8 @@ type AutoFilledInfo = {
 export function BatchPaymentModal({
   selectedIds,
   detailTotalAmount,
+  initialSettlementType,
+  allowAdvancePayment,
   onClose,
   onSuccess,
 }: BatchPaymentModalProps) {
@@ -66,7 +70,7 @@ export function BatchPaymentModal({
       Number.isFinite(Number(confirmedAmount)) &&
       Number(confirmedAmount) > 0
   );
-  const isAdvancePayment = settlementType === "采购垫付";
+  const isAdvancePayment = allowAdvancePayment && settlementType === "采购垫付";
   const normalizedDetailTotal = Math.round(detailTotalAmount * 100) / 100;
   const normalizedConfirmedAmount = Number.isFinite(Number(confirmedAmount))
     ? Math.round(Number(confirmedAmount) * 100) / 100
@@ -97,6 +101,13 @@ export function BatchPaymentModal({
       setConfirmedAmount(normalizedDetailTotal > 0 ? normalizedDetailTotal.toFixed(2) : "");
     });
   }, [normalizedDetailTotal, selectedIds.length]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      if (!selectedIds.length) return;
+      setSettlementType(initialSettlementType || "月结");
+    });
+  }, [initialSettlementType, selectedIds.length]);
 
   useEffect(() => {
     supplierAccountRef.current = supplierAccount;
@@ -153,7 +164,7 @@ export function BatchPaymentModal({
     startTransition(async () => {
       try {
         await createBatchPaymentRequest(selectedIds, {
-          settlementType,
+          settlementType: isAdvancePayment ? "采购垫付" : settlementType,
           supplierName,
           supplierAccount,
           supplierBank,
@@ -178,7 +189,8 @@ export function BatchPaymentModal({
         <DialogHeader>
           <DialogTitle>申请合并请款</DialogTitle>
           <DialogDescription>
-            已选择 {selectedIds.length} 张采购单，提交后将发送一条财务打款审批通知。
+            已选择 {selectedIds.length} 张采购单，提交后将发送一条
+            {allowAdvancePayment ? "垫付报销审批" : "财务打款审批"}通知。
           </DialogDescription>
         </DialogHeader>
 
@@ -193,9 +205,14 @@ export function BatchPaymentModal({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="月结">月结</SelectItem>
-                <SelectItem value="对公现结">对公现结</SelectItem>
-                <SelectItem value="采购垫付">采购垫付</SelectItem>
+                {allowAdvancePayment ? (
+                  <SelectItem value="采购垫付">垫付</SelectItem>
+                ) : (
+                  <>
+                    <SelectItem value="月结">月结</SelectItem>
+                    <SelectItem value="对公现结">对公现结</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
           </div>
