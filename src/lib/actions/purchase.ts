@@ -37,6 +37,7 @@ type BatchReimbursementInput = {
   name: string;
   card: string;
   bank: string;
+  confirmedAmount: number;
 };
 
 const LARGE_AMOUNT_THRESHOLD = 500;
@@ -49,6 +50,13 @@ const REIMBURSEMENT_PENDING_STATUSES: PaymentStatus[] = [
   "PENDING_REIMBURSEMENT",
 ];
 const REIMBURSEMENT_APPROVED_STATUSES: PaymentStatus[] = [
+  "APPROVED_REIMBURSEMENT",
+];
+const ACTIVE_PAYMENT_FLOW_STATUSES: PaymentStatus[] = [
+  "APPROVING",
+  "PENDING_FUNDS",
+  "APPROVED_FUNDS",
+  "PENDING_REIMBURSEMENT",
   "APPROVED_REIMBURSEMENT",
 ];
 function roundMoney(value: number) {
@@ -373,8 +381,12 @@ export async function submitBatchReimbursementAction(
   const reimbursementName = rData.name.trim();
   const reimbursementCard = rData.card.trim();
   const reimbursementBank = rData.bank.trim();
+  const confirmedAmount = roundMoney(Number(rData.confirmedAmount));
   if (!reimbursementName || !reimbursementCard || !reimbursementBank) {
     throw new Error("请完整填写报销收款人、银行卡号和开户行");
+  }
+  if (!Number.isFinite(confirmedAmount) || confirmedAmount <= 0) {
+    throw new Error("确认报销金额必须大于 0");
   }
 
   const selected = await prisma.$transaction(async (tx) => {
@@ -426,10 +438,11 @@ export async function submitBatchReimbursementAction(
     return rows;
   });
 
-  const totalAmount = selected.reduce(
+  const detailTotalAmount = selected.reduce(
     (sum, row) => sum + resolvePaymentAmount(row),
     0
   );
+  const totalAmount = confirmedAmount;
   const baseUrl = resolveAppBaseUrl();
   const reimbursementUrl = baseUrl ? `${baseUrl}/purchases` : "/purchases";
 
@@ -437,7 +450,9 @@ export async function submitBatchReimbursementAction(
     session.name,
     "发起合并报销",
     "物品采购",
-    `发起 ${cleanIds.length} 张采购垫付单据报销，收款人 ${reimbursementName}`
+    `发起 ${cleanIds.length} 张采购垫付单据报销，收款人 ${reimbursementName}，明细合计 ${detailTotalAmount.toFixed(
+      2
+    )} 元，确认报销金额 ${totalAmount.toFixed(2)} 元`
   );
 
   revalidatePath("/purchases");
@@ -446,6 +461,7 @@ export async function submitBatchReimbursementAction(
     `🧾 **采购个人垫付报销申请**\n` +
       `报销人：${reimbursementName}\n` +
       `申请单数：${cleanIds.length} 单\n` +
+      `明细合计：${detailTotalAmount.toFixed(2)}元\n` +
       `报销总额：<font color="warning">${totalAmount.toFixed(2)}元</font>\n\n` +
       `<font color="info">@邓总</font> 采购提交了个人垫付合并报销，请核对后审批。\n\n` +
       `[👉 点击这里前往系统审批报销](${reimbursementUrl})`
@@ -1008,7 +1024,6 @@ export async function updateInvoiceNoAction(id: string, invoiceNo: string) {
   if (!session) throw new Error("未登录");
   if (
     session.role !== "ADMIN" &&
-    session.role !== "BOSS" &&
     session.role !== "PURCHASER"
   ) {
     throw new Error("无发票录入权限");
@@ -1031,7 +1046,9 @@ export async function updateInvoiceNoAction(id: string, invoiceNo: string) {
     session.name,
     "发票记录",
     "物品采购",
-    `请购单 ${row.requestNo} 发票号已更新`
+    trimmed
+      ? `请购单 ${row.requestNo} 发票号已更新为 ${trimmed}`
+      : `请购单 ${row.requestNo} 发票号已清空`
   );
 
   revalidatePath("/purchases");
@@ -1105,17 +1122,36 @@ export async function updatePurchaseSettlementTypeAction(
   if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
     throw new Error("已完成结算的单据无法修改结算方式");
   }
+  if (ACTIVE_PAYMENT_FLOW_STATUSES.includes(row.paymentStatus)) {
+    throw new Error("该单据已进入打款或报销审批流程，无法修改结算方式");
+  }
+
+  const shouldClearSupplierInfo =
+    nextSettlementType === "采购垫付" && row.settlementType !== "采购垫付";
 
   await prisma.purchaseRequest.update({
     where: { id },
-    data: { settlementType: nextSettlementType },
+    data: {
+      settlementType: nextSettlementType,
+      ...(shouldClearSupplierInfo
+        ? {
+            supplierName: null,
+            supplierAccount: null,
+            supplierBank: null,
+          }
+        : {}),
+    },
   });
 
   await createLog(
     session.name,
     "修改结算方式",
     "物品采购",
-    `采购单 ${row.requestNo} 结算方式已更新为 ${nextSettlementType}`
+    `采购单 ${row.requestNo} 结算方式已由 ${
+      row.settlementType || "未设置"
+    } 更新为 ${nextSettlementType}${
+      shouldClearSupplierInfo ? "，并清空对公供应商信息" : ""
+    }`
   );
 
   revalidatePath("/purchases");

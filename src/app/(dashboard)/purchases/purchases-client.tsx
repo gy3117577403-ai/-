@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { PaymentStatus, PurchaseRequest } from "@prisma/client";
+import type { PaymentStatus, PurchaseRequest, PurchaseStatus } from "@prisma/client";
 import type { Table } from "@tanstack/react-table";
 import * as XLSX from "xlsx";
 import { FilePlus2, Download } from "lucide-react";
@@ -53,6 +53,43 @@ const paymentStatusZh: Record<PaymentStatus, string> = {
   REIMBURSED: "已报销完成",
 };
 
+const purchaseStatusZh: Record<PurchaseStatus, string> = {
+  PENDING: "待审批",
+  APPROVED: "已批准",
+  REJECTED: "已驳回",
+  ORDERED: "已采购",
+  RECEIVED: "已入库",
+  CANCELLED: "已撤回",
+};
+
+function resolvePurchaseAmount(row: PurchaseRequest) {
+  const actual = Number(row.actualCost);
+  if (Number.isFinite(actual) && actual > 0) {
+    return Math.round(actual * 100) / 100;
+  }
+  const estimated = Number(row.estimatedCost);
+  if (Number.isFinite(estimated) && estimated > 0) {
+    return Math.round(estimated * 100) / 100;
+  }
+  return 0;
+}
+
+function calculatePaymentAmountTotal(rows: PurchaseRequest[]) {
+  return (
+    rows.reduce((sum, row) => sum + Math.round(resolvePurchaseAmount(row) * 100), 0) /
+    100
+  );
+}
+
+function resolvePurchaseClosureStatus(row: PurchaseRequest) {
+  const invoiceNo = row.invoiceNo?.trim();
+  const settled = row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED";
+
+  if (row.status === "RECEIVED" && settled && invoiceNo) return "已结束";
+  if (row.status === "RECEIVED" && settled && !invoiceNo) return "待发票";
+  return purchaseStatusZh[row.status];
+}
+
 function mapPurchasesToDetailedExportRows(rows: PurchaseRequest[]) {
   return rows.map((r) => ({
     单号: r.requestNo,
@@ -63,6 +100,8 @@ function mapPurchasesToDetailedExportRows(rows: PurchaseRequest[]) {
     实际金额: r.actualCost ?? "",
     供应商名称: r.supplierName ?? "",
     结算方式: r.settlementType ?? "",
+    发票号: r.invoiceNo ?? "",
+    采购闭环状态: resolvePurchaseClosureStatus(r),
     付款状态: paymentStatusZh[r.paymentStatus],
     打款审批时间: r.paymentApprovedAt
       ? formatInShanghai(r.paymentApprovedAt, "YYYY-MM-DD HH:mm")
@@ -93,6 +132,8 @@ function exportPurchasesToExcel(rows: PurchaseRequest[]) {
     实际金额: totalActualCost.toFixed(2),
     供应商名称: "",
     结算方式: "",
+    发票号: "",
+    采购闭环状态: "",
     付款状态: "",
     打款审批时间: "",
   });
@@ -106,6 +147,8 @@ function exportPurchasesToExcel(rows: PurchaseRequest[]) {
     { wch: 12 },
     { wch: 24 },
     { wch: 12 },
+    { wch: 18 },
+    { wch: 14 },
     { wch: 14 },
     { wch: 18 },
   ];
@@ -133,7 +176,7 @@ export function PurchasesClient({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [batchContractIds, setBatchContractIds] = useState<string[]>([]);
   const [batchPaymentIds, setBatchPaymentIds] = useState<string[]>([]);
-  const [reimbursementIds, setReimbursementIds] = useState<string[]>([]);
+  const [reimbursementRows, setReimbursementRows] = useState<PurchaseRequest[]>([]);
   const [, startTransition] = useTransition();
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -235,9 +278,17 @@ export function PurchasesClient({
 
   function handleSaveInvoice() {
     if (!invoiceTarget) return;
+    const nextInvoiceNo = invoiceValue.trim();
+    if (
+      invoiceTarget.invoiceNo?.trim() &&
+      !nextInvoiceNo &&
+      !confirm("清空已有发票号后，该采购单将回到待发票状态，确定继续吗？")
+    ) {
+      return;
+    }
     startInvoiceTransition(async () => {
       try {
-        await updateInvoiceNoAction(invoiceTarget.id, invoiceValue);
+        await updateInvoiceNoAction(invoiceTarget.id, nextInvoiceNo);
         toast.success("发票已更新");
         setInvoiceOpen(false);
         setInvoiceTarget(null);
@@ -381,7 +432,7 @@ export function PurchasesClient({
   }
 
   function handleBatchReimbursement(rows: PurchaseRequest[]) {
-    setReimbursementIds(rows.map((row) => row.id));
+    setReimbursementRows(rows);
   }
 
   function handleBatchPaymentSuccess() {
@@ -570,8 +621,9 @@ export function PurchasesClient({
       />
 
       <ReimbursementModal
-        selectedIds={reimbursementIds}
-        onClose={() => setReimbursementIds([])}
+        selectedIds={reimbursementRows.map((row) => row.id)}
+        detailTotalAmount={calculatePaymentAmountTotal(reimbursementRows)}
+        onClose={() => setReimbursementRows([])}
         onSuccess={handleBatchReimbursementSuccess}
       />
 

@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Check,
+  ChevronsLeft,
+  ChevronsRight,
   CircleCheck,
   ExternalLink,
   FileText,
@@ -71,9 +73,32 @@ const paymentBadge: Record<
 
 const LARGE_AMOUNT = 500;
 const SETTLEMENT_TYPE_OPTIONS = ["采购垫付", "对公现结", "月结"] as const;
+const ACTIVE_PAYMENT_FLOW_STATUSES: PaymentStatus[] = [
+  "APPROVING",
+  "PENDING_FUNDS",
+  "APPROVED_FUNDS",
+  "PENDING_REIMBURSEMENT",
+  "APPROVED_REIMBURSEMENT",
+];
 
 function compactRequestNo(value: string) {
   return value.length > 6 ? `...${value.slice(-6)}` : value;
+}
+
+function isFinancialSettled(row: Pick<PurchaseRequest, "paymentStatus">) {
+  return row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED";
+}
+
+function hasInvoice(row: Pick<PurchaseRequest, "invoiceNo">) {
+  return Boolean(row.invoiceNo?.trim());
+}
+
+function isPurchaseClosed(row: PurchaseRequest) {
+  return row.status === "RECEIVED" && isFinancialSettled(row) && hasInvoice(row);
+}
+
+function needsInvoice(row: PurchaseRequest) {
+  return row.status === "RECEIVED" && isFinancialSettled(row) && !hasInvoice(row);
 }
 
 function hasSupplierChangeAfterApproval(row: PurchaseRequest) {
@@ -84,6 +109,41 @@ function hasSupplierChangeAfterApproval(row: PurchaseRequest) {
     new Date(row.updatedAt).getTime() -
       new Date(row.paymentApprovedAt).getTime() >
     5000
+  );
+}
+
+function RequestNoCell({ requestNo }: { requestNo: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="flex w-[96px] items-start gap-1 font-mono text-xs text-muted-foreground">
+      <span
+        className={
+          expanded
+            ? "max-w-[160px] break-all whitespace-normal leading-snug"
+            : "w-[64px] truncate"
+        }
+        title={requestNo}
+      >
+        {expanded ? requestNo : compactRequestNo(requestNo)}
+      </span>
+      <button
+        type="button"
+        className="mt-[-2px] rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        title={expanded ? "收起单号" : "展开完整单号"}
+        aria-label={expanded ? "收起单号" : "展开完整单号"}
+        onClick={(event) => {
+          event.stopPropagation();
+          setExpanded((value) => !value);
+        }}
+      >
+        {expanded ? (
+          <ChevronsLeft className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronsRight className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </div>
   );
 }
 
@@ -114,6 +174,13 @@ function SettlementTypeCell({
   function handleChange(nextValue: string | null) {
     if (!nextValue) return;
     if (nextValue === value) return;
+    if (
+      nextValue === "采购垫付" &&
+      value !== "采购垫付" &&
+      !confirm("切换为采购垫付后将清空供应商名称、账号、开户行，确定继续吗？")
+    ) {
+      return;
+    }
     const previousValue = value;
     setValue(nextValue);
     startTransition(() => {
@@ -217,18 +284,11 @@ export function getColumns(options: {
     {
       accessorKey: "requestNo",
       header: () => (
-        <span className="block w-[80px] text-muted-foreground">单号</span>
+        <span className="block w-[96px] text-muted-foreground">单号</span>
       ),
       cell: ({ row }) => {
         const requestNo = row.getValue("requestNo") as string;
-        return (
-          <span
-            className="block w-[80px] font-mono text-xs text-muted-foreground"
-            title={requestNo}
-          >
-            {compactRequestNo(requestNo)}
-          </span>
-        );
+        return <RequestNoCell requestNo={requestNo} />;
       },
     },
     {
@@ -424,7 +484,8 @@ export function getColumns(options: {
         const canEdit =
           (role === "ADMIN" || role === "PURCHASER") &&
           req.paymentStatus !== "PAID" &&
-          req.paymentStatus !== "REIMBURSED";
+          req.paymentStatus !== "REIMBURSED" &&
+          !ACTIVE_PAYMENT_FLOW_STATUSES.includes(req.paymentStatus);
         return <SettlementTypeCell row={req} canEdit={canEdit} />;
       },
       filterFn: (row, _columnId, filterValue: string) => {
@@ -510,8 +571,13 @@ export function getColumns(options: {
       accessorKey: "status",
       header: () => <span className="block w-[100px] text-center">状态</span>,
       cell: ({ row }) => {
+        const req = row.original;
         const status = row.getValue("status") as PurchaseStatus;
-        const cfg = statusConfig[status];
+        const cfg = needsInvoice(req)
+          ? { label: "待发票", className: "bg-amber-500/90 text-white" }
+          : isPurchaseClosed(req)
+            ? { label: "已结束", className: "bg-emerald-600/90 text-white" }
+          : statusConfig[status];
         return (
           <div className="flex w-[100px] justify-center">
             <Badge variant="default" className={cfg.className}>
@@ -524,11 +590,15 @@ export function getColumns(options: {
         if (!filterValue) return true;
         const status = row.getValue("status") as string;
         if (filterValue === "__active__") {
-          return status === "APPROVED" || status === "ORDERED";
+          return (
+            status === "APPROVED" ||
+            status === "ORDERED" ||
+            (status === "RECEIVED" && !isPurchaseClosed(row.original))
+          );
         }
         if (filterValue === "__done__") {
           return (
-            status === "RECEIVED" ||
+            isPurchaseClosed(row.original) ||
             status === "REJECTED" ||
             status === "CANCELLED"
           );
@@ -570,12 +640,15 @@ export function getColumns(options: {
       header: () => <span className="block w-[56px] text-center">操作</span>,
       cell: ({ row }) => {
         const req = row.original;
-        const isTerminal =
-          req.status === "RECEIVED" ||
+        const isHardTerminal =
           req.status === "REJECTED" ||
           req.status === "CANCELLED";
+        const needsInvoiceNo = needsInvoice(req);
 
-        if (isTerminal && role !== "ADMIN") {
+        if (
+          (isHardTerminal && role !== "ADMIN") ||
+          (isPurchaseClosed(req) && role !== "ADMIN" && role !== "PURCHASER")
+        ) {
           return <span className="block w-[56px] text-center text-xs text-slate-400">已结束</span>;
         }
 
@@ -595,7 +668,7 @@ export function getColumns(options: {
           req.paymentStatus !== "PAID" &&
           req.paymentStatus !== "REIMBURSED";
         const showEditInvoice =
-          (role === "ADMIN" || role === "BOSS" || role === "PURCHASER") &&
+          (role === "ADMIN" || role === "PURCHASER") &&
           (req.status === "ORDERED" || req.status === "RECEIVED");
         const showPrintContract =
           (canPurchaser || canApprove) &&
@@ -627,6 +700,13 @@ export function getColumns(options: {
           !canEditActualCost &&
           role !== "ADMIN"
         ) {
+          if (needsInvoiceNo) {
+            return (
+              <span className="block w-[56px] text-center text-xs font-medium text-amber-600">
+                待发票
+              </span>
+            );
+          }
           return <span className="block w-[56px] text-center text-xs text-slate-400">-</span>;
         }
 

@@ -21,6 +21,7 @@ import { toast } from "sonner";
 
 type ReimbursementModalProps = {
   selectedIds: string[];
+  detailTotalAmount: number;
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -33,12 +34,14 @@ type AutoFilledInfo = {
 
 export function ReimbursementModal({
   selectedIds,
+  detailTotalAmount,
   onClose,
   onSuccess,
 }: ReimbursementModalProps) {
   const [name, setName] = useState("");
   const [card, setCard] = useState("");
   const [bank, setBank] = useState("");
+  const [confirmedAmount, setConfirmedAmount] = useState("");
   const [names, setNames] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
   const [isLookupPending, startLookupTransition] = useTransition();
@@ -47,8 +50,20 @@ export function ReimbursementModal({
   const bankRef = useRef("");
 
   const canSubmit = Boolean(
-    selectedIds.length > 0 && name.trim() && card.trim() && bank.trim()
+    selectedIds.length > 0 &&
+      name.trim() &&
+      card.trim() &&
+      bank.trim() &&
+      Number.isFinite(Number(confirmedAmount)) &&
+      Number(confirmedAmount) > 0
   );
+  const normalizedDetailTotal = Math.round(detailTotalAmount * 100) / 100;
+  const normalizedConfirmedAmount = Number.isFinite(Number(confirmedAmount))
+    ? Math.round(Number(confirmedAmount) * 100) / 100
+    : 0;
+  const amountMismatch =
+    normalizedConfirmedAmount > 0 &&
+    Math.abs(normalizedConfirmedAmount - normalizedDetailTotal) >= 0.01;
 
   useEffect(() => {
     if (!selectedIds.length) return;
@@ -62,6 +77,16 @@ export function ReimbursementModal({
       }
     });
   }, [selectedIds.length]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      if (!selectedIds.length) {
+        setConfirmedAmount("");
+        return;
+      }
+      setConfirmedAmount(normalizedDetailTotal > 0 ? normalizedDetailTotal.toFixed(2) : "");
+    });
+  }, [normalizedDetailTotal, selectedIds.length]);
 
   useEffect(() => {
     cardRef.current = card;
@@ -119,6 +144,7 @@ export function ReimbursementModal({
           name,
           card,
           bank,
+          confirmedAmount: normalizedConfirmedAmount,
         });
         toast.success(`已发起 ${selectedIds.length} 单合并报销`);
         onSuccess();
@@ -182,6 +208,42 @@ export function ReimbursementModal({
               disabled={isPending}
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>明细自动合计金额</Label>
+              <div className="flex h-9 items-center rounded-md border bg-slate-50 px-3 text-sm font-medium tabular-nums text-slate-700">
+                ￥{normalizedDetailTotal.toFixed(2)}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reimbursement-confirmed-amount">
+                确认报销金额
+              </Label>
+              <Input
+                id="reimbursement-confirmed-amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={confirmedAmount}
+                onChange={(event) => setConfirmedAmount(event.target.value)}
+                onBlur={() => {
+                  const amount = Number(confirmedAmount);
+                  if (Number.isFinite(amount) && amount > 0) {
+                    setConfirmedAmount((Math.round(amount * 100) / 100).toFixed(2));
+                  }
+                }}
+                placeholder="0.00"
+                disabled={isPending}
+              />
+            </div>
+          </div>
+
+          {amountMismatch && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+              确认金额与明细合计不一致，请核对后提交。
+            </div>
+          )}
         </div>
 
         <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
