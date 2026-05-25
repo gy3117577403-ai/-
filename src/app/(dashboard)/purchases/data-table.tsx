@@ -15,7 +15,6 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -432,15 +431,15 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
-      <div className="w-full rounded-md border bg-white">
-        <Table className="w-full">
-          <TableHeader className="sticky top-[7.5rem] z-20 bg-white shadow-[0_1px_0_0_rgba(226,232,240,1)]">
+      <div className="relative max-h-[calc(100vh-220px)] w-full overflow-auto rounded-md border bg-white">
+        <table className="w-full caption-bottom border-separate border-spacing-0 text-sm">
+          <TableHeader className="bg-white [&_tr]:border-b">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="sticky top-[7.5rem] z-20 bg-white"
+                    className="sticky top-0 z-30 bg-white shadow-[0_1px_0_0_rgba(226,232,240,1)]"
                   >
                     {header.isPlaceholder ? null : (
                       <button
@@ -492,7 +491,7 @@ export function DataTable<TData, TValue>({
               </TableRow>
             )}
           </TableBody>
-        </Table>
+        </table>
       </div>
 
       <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
