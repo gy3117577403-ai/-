@@ -160,6 +160,8 @@ export function DataTable<TData, TValue>({
           "APPROVED_FUNDS",
           "PENDING_REIMBURSEMENT",
           "APPROVED_REIMBURSEMENT",
+          "PENDING_REFUND",
+          "REFUNDED",
           "PAID",
           "REIMBURSED",
         ].includes(item.paymentStatus ?? "")

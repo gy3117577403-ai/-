@@ -36,6 +36,7 @@ import {
   PackageCheck,
   PencilLine,
   Receipt,
+  RotateCcw,
   ShoppingCart,
   Trash2,
   Undo2,
@@ -54,6 +55,7 @@ const statusConfig: Record<
   REJECTED: { label: "已驳回", className: "bg-slate-400 text-white" },
   ORDERED: { label: "已采购", className: "bg-indigo-500/90 text-white" },
   RECEIVED: { label: "已入库", className: "bg-emerald-500/90 text-white" },
+  RETURNED: { label: "已退货", className: "bg-rose-600/90 text-white" },
   CANCELLED: { label: "已撤回", className: "bg-slate-500/90 text-white" },
 };
 
@@ -68,6 +70,8 @@ const paymentBadge: Record<
   PENDING_REIMBURSEMENT: { label: "待报销审批", className: "bg-amber-500/90 text-white" },
   APPROVED_REIMBURSEMENT: { label: "待财务报销", className: "bg-blue-600/90 text-white" },
   PAID: { label: "已付款", className: "bg-emerald-600/90 text-white" },
+  PENDING_REFUND: { label: "待退款", className: "bg-rose-500/90 text-white" },
+  REFUNDED: { label: "已退款", className: "bg-emerald-700/90 text-white" },
   REIMBURSED: { label: "已报销完成", className: "bg-emerald-600/90 text-white" },
 };
 
@@ -79,6 +83,7 @@ const ACTIVE_PAYMENT_FLOW_STATUSES: PaymentStatus[] = [
   "APPROVED_FUNDS",
   "PENDING_REIMBURSEMENT",
   "APPROVED_REIMBURSEMENT",
+  "PENDING_REFUND",
 ];
 
 function compactRequestNo(value: string) {
@@ -86,7 +91,11 @@ function compactRequestNo(value: string) {
 }
 
 function isFinancialSettled(row: Pick<PurchaseRequest, "paymentStatus">) {
-  return row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED";
+  return (
+    row.paymentStatus === "PAID" ||
+    row.paymentStatus === "REIMBURSED" ||
+    row.paymentStatus === "REFUNDED"
+  );
 }
 
 function hasInvoice(row: Pick<PurchaseRequest, "invoiceNo">) {
@@ -94,6 +103,7 @@ function hasInvoice(row: Pick<PurchaseRequest, "invoiceNo">) {
 }
 
 function isPurchaseClosed(row: PurchaseRequest) {
+  if (row.status === "RETURNED") return true;
   return row.status === "RECEIVED" && isFinancialSettled(row) && hasInvoice(row);
 }
 
@@ -263,6 +273,8 @@ export function getColumns(options: {
   onPrintContract: (row: PurchaseRequest) => void;
   onAdminEditCost: (row: PurchaseRequest) => void;
   onEditSupplier: (row: PurchaseRequest) => void;
+  onReturnPurchase: (row: PurchaseRequest) => void;
+  onConfirmRefund: (row: PurchaseRequest) => void;
   requestNoExpandedAll?: boolean;
   requestNoCollapseSignal?: number;
 }): ColumnDef<PurchaseRequest>[] {
@@ -399,6 +411,8 @@ export function getColumns(options: {
         const canEdit =
           (role === "ADMIN" || role === "PURCHASER") &&
           req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "PENDING_REFUND" &&
+          req.paymentStatus !== "REFUNDED" &&
           req.paymentStatus !== "REIMBURSED";
         const display =
           value != null && Number.isFinite(value) ? `￥${value.toFixed(2)}` : "-";
@@ -444,6 +458,8 @@ export function getColumns(options: {
         const canEdit =
           (role === "ADMIN" || role === "PURCHASER") &&
           req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "PENDING_REFUND" &&
+          req.paymentStatus !== "REFUNDED" &&
           req.paymentStatus !== "REIMBURSED";
         const warnBeforePayment =
           req.paymentStatus === "PENDING_FUNDS" ||
@@ -510,6 +526,7 @@ export function getColumns(options: {
         const canEdit =
           (role === "ADMIN" || role === "PURCHASER") &&
           req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "REFUNDED" &&
           req.paymentStatus !== "REIMBURSED" &&
           !ACTIVE_PAYMENT_FLOW_STATUSES.includes(req.paymentStatus);
         return <SettlementTypeCell row={req} canEdit={canEdit} />;
@@ -548,6 +565,8 @@ export function getColumns(options: {
           return (
             status === "APPROVED_FUNDS" ||
             status === "APPROVED_REIMBURSEMENT" ||
+            status === "PENDING_REFUND" ||
+            status === "REFUNDED" ||
             status === "PAID" ||
             status === "REIMBURSED"
           );
@@ -625,6 +644,7 @@ export function getColumns(options: {
         if (filterValue === "__done__") {
           return (
             isPurchaseClosed(row.original) ||
+            status === "RETURNED" ||
             status === "REJECTED" ||
             status === "CANCELLED"
           );
@@ -688,10 +708,14 @@ export function getColumns(options: {
           (role === "BOSS" || role === "ADMIN") &&
           (req.status === "ORDERED" || req.status === "RECEIVED") &&
           req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "PENDING_REFUND" &&
+          req.paymentStatus !== "REFUNDED" &&
           req.paymentStatus !== "REIMBURSED";
         const canEditActualCost =
           (role === "ADMIN" || role === "PURCHASER") &&
           req.paymentStatus !== "PAID" &&
+          req.paymentStatus !== "PENDING_REFUND" &&
+          req.paymentStatus !== "REFUNDED" &&
           req.paymentStatus !== "REIMBURSED";
         const showEditInvoice =
           (role === "ADMIN" || role === "PURCHASER") &&
@@ -712,6 +736,20 @@ export function getColumns(options: {
           req.status === "PENDING" &&
           (applicantTrim === sessionName.trim() ||
             applicantTrim === sessionUserId.trim());
+        const showReturnPurchase =
+          canPurchaser &&
+          (req.status === "ORDERED" || req.status === "RECEIVED") &&
+          ![
+            "PENDING_REIMBURSEMENT",
+            "APPROVED_REIMBURSEMENT",
+            "REIMBURSED",
+            "PENDING_REFUND",
+            "REFUNDED",
+          ].includes(req.paymentStatus);
+        const showConfirmRefund =
+          (role === "ADMIN" || role === "BOSS" || role === "PURCHASER") &&
+          req.status === "RETURNED" &&
+          req.paymentStatus === "PENDING_REFUND";
 
         if (
           !showApproveReject &&
@@ -723,6 +761,8 @@ export function getColumns(options: {
           !showDelete &&
           !showAdminDelete &&
           !showWithdraw &&
+          !showReturnPurchase &&
+          !showConfirmRefund &&
           !canEditActualCost &&
           role !== "ADMIN"
         ) {
@@ -807,6 +847,27 @@ export function getColumns(options: {
                   <DropdownMenuItem onClick={() => options.onWithdraw(req)}>
                     <Undo2 />
                     撤回申请
+                  </DropdownMenuItem>
+                </>
+              )}
+              {showReturnPurchase && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => options.onReturnPurchase(req)}
+                  >
+                    <RotateCcw />
+                    登记退货
+                  </DropdownMenuItem>
+                </>
+              )}
+              {showConfirmRefund && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => options.onConfirmRefund(req)}>
+                    <CircleCheck />
+                    确认退款到账
                   </DropdownMenuItem>
                 </>
               )}

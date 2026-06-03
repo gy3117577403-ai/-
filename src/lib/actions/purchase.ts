@@ -59,6 +59,7 @@ const ACTIVE_PAYMENT_FLOW_STATUSES: PaymentStatus[] = [
   "APPROVED_FUNDS",
   "PENDING_REIMBURSEMENT",
   "APPROVED_REIMBURSEMENT",
+  "PENDING_REFUND",
 ];
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
@@ -445,6 +446,8 @@ export async function submitBatchReimbursementAction(
         "APPROVED_FUNDS",
         "PENDING_REIMBURSEMENT",
         "APPROVED_REIMBURSEMENT",
+        "PENDING_REFUND",
+        "REFUNDED",
         "PAID",
         "REIMBURSED",
       ].includes(row.paymentStatus)
@@ -726,6 +729,153 @@ export async function financeConfirmPaymentAction(ids: string[]) {
       })
     );
   }
+}
+
+export async function returnPurchaseRequestAction(id: string, reason: string) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (session.role !== "ADMIN" && session.role !== "PURCHASER") {
+    throw new Error("无退货登记权限");
+  }
+
+  const cleanId = id.trim();
+  const trimmedReason = reason.trim();
+  if (!cleanId) throw new Error("采购单 ID 无效");
+  if (!trimmedReason) throw new Error("请填写退货原因");
+
+  const result = await prisma.$transaction(async (tx) => {
+    const row = await tx.purchaseRequest.findUnique({ where: { id: cleanId } });
+    if (!row) throw new Error("采购单不存在");
+    if (row.status !== "ORDERED" && row.status !== "RECEIVED") {
+      throw new Error("仅已采购或已入库的采购单可登记退货");
+    }
+    if (
+      row.paymentStatus === "PENDING_REIMBURSEMENT" ||
+      row.paymentStatus === "APPROVED_REIMBURSEMENT" ||
+      row.paymentStatus === "REIMBURSED"
+    ) {
+      throw new Error("个人垫付报销单据请走报销冲销流程，不能登记为对公退货");
+    }
+    if (row.paymentStatus === "PENDING_REFUND" || row.paymentStatus === "REFUNDED") {
+      throw new Error("该采购单已处于退货退款流程中");
+    }
+
+    let nextPaymentStatus: PaymentStatus = row.paymentStatus;
+    if (
+      row.paymentStatus === "APPROVING" ||
+      row.paymentStatus === "PENDING_FUNDS" ||
+      row.paymentStatus === "APPROVED_FUNDS"
+    ) {
+      nextPaymentStatus = "UNPAID";
+    }
+    if (row.paymentStatus === "PAID") {
+      nextPaymentStatus = "PENDING_REFUND";
+    }
+
+    if (row.status === "RECEIVED") {
+      const adjusted = await tx.jigBaseInventory.updateMany({
+        where: {
+          modelCode: row.itemName,
+          quantity: { gte: row.quantity },
+        },
+        data: { quantity: { decrement: row.quantity } },
+      });
+      if (adjusted.count === 0) {
+        throw new Error("总仓库存不足以扣减本次退货数量，请先核对库存");
+      }
+    }
+
+    const nextRemark = [row.remark?.trim(), `退货原因：${trimmedReason}`]
+      .filter(Boolean)
+      .join("\n");
+
+    await tx.purchaseRequest.update({
+      where: { id: cleanId },
+      data: {
+        status: "RETURNED",
+        paymentStatus: nextPaymentStatus,
+        remark: nextRemark,
+      },
+    });
+
+    return {
+      requestNo: row.requestNo,
+      applicant: row.applicant,
+      itemName: row.itemName,
+      quantity: row.quantity,
+      supplierName: row.supplierName?.trim() || "未记录供应商",
+      amount: resolvePaymentAmount(row),
+      wasReceived: row.status === "RECEIVED",
+      previousPaymentStatus: row.paymentStatus,
+      nextPaymentStatus,
+    };
+  });
+
+  await createLog(
+    session.name,
+    "退货登记",
+    "物品采购",
+    `采购单 ${result.requestNo} 已登记退货，原因：${trimmedReason}；付款状态 ${result.previousPaymentStatus} -> ${result.nextPaymentStatus}`
+  );
+
+  revalidatePath("/purchases");
+  if (result.wasReceived) revalidatePath("/jig-inventory");
+
+  void sendWeComMessage(
+    `↩️ **采购退货登记提醒**\n` +
+      `单号：${result.requestNo}\n` +
+      `物资：${result.itemName} x ${result.quantity}\n` +
+      `供应商：${result.supplierName}\n` +
+      `涉及金额：<font color="warning">${result.amount.toFixed(2)}元</font>\n` +
+      `退货原因：${trimmedReason}\n\n` +
+      (result.nextPaymentStatus === "PENDING_REFUND"
+        ? `<font color="info">@财务</font> 该单据已付款，请跟进供应商退款并在系统确认退款。`
+        : `<font color="info">@采购</font> 该单据已登记退货，请跟进供应商处理。`)
+  );
+}
+
+export async function confirmPurchaseRefundAction(id: string) {
+  const session = await getSession();
+  if (!session) throw new Error("未登录");
+  if (
+    session.role !== "ADMIN" &&
+    session.role !== "BOSS" &&
+    session.role !== "PURCHASER"
+  ) {
+    throw new Error("无确认退款权限");
+  }
+
+  const cleanId = id.trim();
+  if (!cleanId) throw new Error("采购单 ID 无效");
+
+  const row = await prisma.purchaseRequest.findUnique({ where: { id: cleanId } });
+  if (!row) throw new Error("采购单不存在");
+  if (row.status !== "RETURNED" || row.paymentStatus !== "PENDING_REFUND") {
+    throw new Error("仅已退货且待退款的采购单可确认退款");
+  }
+
+  await prisma.purchaseRequest.update({
+    where: { id: cleanId },
+    data: { paymentStatus: "REFUNDED" },
+  });
+
+  await createLog(
+    session.name,
+    "确认退货退款",
+    "物品采购",
+    `采购单 ${row.requestNo} 已确认供应商退款到账`
+  );
+
+  revalidatePath("/purchases");
+
+  void sendWeComMessage(
+    `✅ **退货退款完成通知**\n` +
+      `单号：${row.requestNo}\n` +
+      `物资：${row.itemName} x ${row.quantity}\n` +
+      `供应商：${row.supplierName?.trim() || "未记录供应商"}\n` +
+      `退款金额：<font color="warning">${resolvePaymentAmount(row).toFixed(2)}元</font>\n\n` +
+      `<font color="info">@采购</font> 财务已确认该退货单退款到账，请知悉。`
+  );
 }
 
 export async function getHistoricalSupplierInfoAction(supplierName: string) {
@@ -1106,8 +1256,13 @@ export async function updateSupplierInfoAction(
 
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("采购单不存在");
-  if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
-    throw new Error("已完成付款或报销的单据禁止修改供应商信息");
+  if (
+    row.paymentStatus === "PAID" ||
+    row.paymentStatus === "PENDING_REFUND" ||
+    row.paymentStatus === "REFUNDED" ||
+    row.paymentStatus === "REIMBURSED"
+  ) {
+    throw new Error("已完成付款、退货退款或报销的单据禁止修改供应商信息");
   }
 
   const supplierName = data.supplierName.trim();
@@ -1155,7 +1310,11 @@ export async function updatePurchaseSettlementTypeAction(
 
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("采购单不存在");
-  if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
+  if (
+    row.paymentStatus === "PAID" ||
+    row.paymentStatus === "REFUNDED" ||
+    row.paymentStatus === "REIMBURSED"
+  ) {
     throw new Error("已完成结算的单据无法修改结算方式");
   }
   if (ACTIVE_PAYMENT_FLOW_STATUSES.includes(row.paymentStatus)) {
@@ -1296,8 +1455,13 @@ export async function updatePurchaseActualCostAction(
   const row = await prisma.purchaseRequest.findUnique({ where: { id } });
   if (!row) throw new Error("请购单不存在");
 
-  if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
-    throw new Error("已完成付款或报销的单据无法修改金额");
+  if (
+    row.paymentStatus === "PAID" ||
+    row.paymentStatus === "PENDING_REFUND" ||
+    row.paymentStatus === "REFUNDED" ||
+    row.paymentStatus === "REIMBURSED"
+  ) {
+    throw new Error("已完成付款、退货退款或报销的单据无法修改金额");
   }
 
   await prisma.purchaseRequest.update({

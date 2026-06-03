@@ -31,9 +31,11 @@ import {
   batchApprovePurchasesAction,
   batchRejectPurchasesAction,
   cancelPurchaseRequestAction,
+  confirmPurchaseRefundAction,
   deletePurchaseRequest,
   financeConfirmPaymentAction,
   markAsPaidAction,
+  returnPurchaseRequestAction,
   updateInvoiceNoAction,
   updatePurchaseActualCostAction,
   updatePurchaseStatus,
@@ -50,6 +52,8 @@ const paymentStatusZh: Record<PaymentStatus, string> = {
   PENDING_REIMBURSEMENT: "待报销审批",
   APPROVED_REIMBURSEMENT: "待财务报销",
   PAID: "已付款",
+  PENDING_REFUND: "待退款",
+  REFUNDED: "已退款",
   REIMBURSED: "已报销完成",
 };
 
@@ -59,6 +63,7 @@ const purchaseStatusZh: Record<PurchaseStatus, string> = {
   REJECTED: "已驳回",
   ORDERED: "已采购",
   RECEIVED: "已入库",
+  RETURNED: "已退货",
   CANCELLED: "已撤回",
 };
 
@@ -102,6 +107,13 @@ function resolvePurchaseClosureStatus(row: PurchaseRequest) {
   const invoiceNo = row.invoiceNo?.trim();
   const settled = row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED";
 
+  if (row.status === "RETURNED") {
+    return row.paymentStatus === "PENDING_REFUND"
+      ? "已退货（待退款）"
+      : row.paymentStatus === "REFUNDED"
+        ? "已退货（已退款）"
+        : "已退货";
+  }
   if (row.status === "RECEIVED" && settled && invoiceNo) return "已结束";
   if (row.status === "RECEIVED" && settled && !invoiceNo) return "待发票";
   return purchaseStatusZh[row.status];
@@ -222,6 +234,11 @@ export function PurchasesClient({
   const [invoicePending, startInvoiceTransition] = useTransition();
   const [editSupplierTarget, setEditSupplierTarget] =
     useState<PurchaseRequest | null>(null);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnTarget, setReturnTarget] =
+    useState<PurchaseRequest | null>(null);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnPending, startReturnTransition] = useTransition();
 
   function handleApprove(row: PurchaseRequest) {
     startTransition(async () => {
@@ -281,6 +298,59 @@ export function PurchasesClient({
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "操作失败");
+      }
+    });
+  }
+
+  function handleReturnPurchase(row: PurchaseRequest) {
+    setReturnTarget(row);
+    setReturnReason("");
+    setReturnOpen(true);
+  }
+
+  function handleConfirmReturnPurchase() {
+    if (!returnTarget) return;
+    const reason = returnReason.trim();
+    if (!reason) {
+      toast.error("请填写退货原因");
+      return;
+    }
+    if (
+      returnTarget.paymentStatus === "PAID" &&
+      !confirm("该单据已付款，登记退货后将进入待退款状态，确定继续吗？")
+    ) {
+      return;
+    }
+
+    startReturnTransition(async () => {
+      try {
+        await returnPurchaseRequestAction(returnTarget.id, reason);
+        toast.success(
+          returnTarget.paymentStatus === "PAID"
+            ? "已登记退货，待财务跟进退款"
+            : "已登记退货"
+        );
+        setReturnOpen(false);
+        setReturnTarget(null);
+        setReturnReason("");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "退货登记失败");
+      }
+    });
+  }
+
+  function handleConfirmRefund(row: PurchaseRequest) {
+    if (!confirm(`确认采购单 ${row.requestNo} 的供应商退款已到账吗？`)) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await confirmPurchaseRefundAction(row.id);
+        toast.success("已确认退款到账");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "确认退款失败");
       }
     });
   }
@@ -577,6 +647,8 @@ export function PurchasesClient({
     onPrintContract: handlePrintContract,
     onAdminEditCost: handleAdminEditCost,
     onEditSupplier: handleEditSupplier,
+    onReturnPurchase: handleReturnPurchase,
+    onConfirmRefund: handleConfirmRefund,
     requestNoExpandedAll,
     requestNoCollapseSignal,
   });
@@ -793,6 +865,63 @@ export function PurchasesClient({
               disabled={invoicePending}
             >
               {invoicePending ? "保存中…" : "保存"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={returnOpen}
+        onOpenChange={(open) => {
+          setReturnOpen(open);
+          if (!open) {
+            setReturnTarget(null);
+            setReturnReason("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>登记退货</DialogTitle>
+            <DialogDescription>
+              {returnTarget
+                ? `采购单 ${returnTarget.requestNo}，退货后采购状态将变更为“已退货”。`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {returnTarget?.paymentStatus === "PAID" && (
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              该单据已付款，登记退货后付款状态会进入“待退款”，请财务后续确认退款到账。
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="return-reason">退货原因</Label>
+            <Textarea
+              id="return-reason"
+              placeholder="请填写退货原因，例如质量问题、型号不符、供应商取消等…"
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+              rows={4}
+              className="min-h-[100px] resize-y"
+              disabled={returnPending}
+            />
+          </div>
+          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setReturnOpen(false)}
+              disabled={returnPending}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleConfirmReturnPurchase}
+              disabled={returnPending}
+            >
+              {returnPending ? "登记中…" : "确认退货"}
             </Button>
           </DialogFooter>
         </DialogContent>
