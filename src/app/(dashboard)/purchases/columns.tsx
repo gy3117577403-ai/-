@@ -90,6 +90,10 @@ function compactRequestNo(value: string) {
   return value.length > 6 ? `...${value.slice(-6)}` : value;
 }
 
+function compactSupplierName(value: string) {
+  return value.length > 8 ? `${value.slice(0, 8)}...` : value;
+}
+
 function isFinancialSettled(row: Pick<PurchaseRequest, "paymentStatus">) {
   return (
     row.paymentStatus === "PAID" ||
@@ -277,10 +281,12 @@ export function getColumns(options: {
   onConfirmRefund: (row: PurchaseRequest) => void;
   requestNoExpandedAll?: boolean;
   requestNoCollapseSignal?: number;
+  supplierNameExpandedAll?: boolean;
 }): ColumnDef<PurchaseRequest>[] {
   const { role, sessionName, sessionUserId } = options;
   const requestNoExpandedAll = options.requestNoExpandedAll ?? false;
   const requestNoCollapseSignal = options.requestNoCollapseSignal ?? 0;
+  const supplierNameExpandedAll = options.supplierNameExpandedAll ?? false;
 
   return [
     {
@@ -449,7 +455,17 @@ export function getColumns(options: {
     },
     {
       accessorKey: "supplierName",
-      header: () => <span className="block max-w-[150px] truncate">供应商</span>,
+      header: () => (
+        <span
+          className={
+            supplierNameExpandedAll
+              ? "block w-[220px] text-left"
+              : "block w-[150px] text-left"
+          }
+        >
+          供应商
+        </span>
+      ),
       enableSorting: true,
       enableColumnFilter: true,
       cell: ({ row }) => {
@@ -472,12 +488,26 @@ export function getColumns(options: {
           : "text-slate-400 hover:text-slate-700";
 
         return (
-          <div className="flex max-w-[150px] items-center gap-1">
+          <div
+            className={
+              supplierNameExpandedAll
+                ? "flex w-[220px] items-start gap-1"
+                : "flex w-[150px] items-center gap-1"
+            }
+          >
             <span
-              className="block min-w-0 flex-1 truncate text-sm text-slate-700"
+              className={
+                supplierNameExpandedAll
+                  ? "block min-w-0 flex-1 break-words whitespace-normal text-sm leading-snug text-slate-700"
+                  : "block min-w-0 flex-1 truncate text-sm text-slate-700"
+              }
               title={value || "未填写供应商"}
             >
-              {value || "-"}
+              {value
+                ? supplierNameExpandedAll
+                  ? value
+                  : compactSupplierName(value)
+                : "-"}
             </span>
             {changedAfterApproval && (
               <span
@@ -618,7 +648,9 @@ export function getColumns(options: {
       cell: ({ row }) => {
         const req = row.original;
         const status = row.getValue("status") as PurchaseStatus;
-        const cfg = needsInvoice(req)
+        const cfg = status === "RETURNED"
+          ? statusConfig.RETURNED
+          : needsInvoice(req)
           ? { label: "待发票", className: "bg-amber-500/90 text-white" }
           : isPurchaseClosed(req)
             ? { label: "已结束", className: "bg-emerald-600/90 text-white" }

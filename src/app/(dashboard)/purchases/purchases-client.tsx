@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import type { PaymentStatus, PurchaseRequest, PurchaseStatus } from "@prisma/client";
 import type { Table } from "@tanstack/react-table";
 import * as XLSX from "xlsx";
-import { ChevronsLeft, ChevronsRight, Download, FilePlus2 } from "lucide-react";
+import {
+  ChevronsLeft,
+  ChevronsRight,
+  Download,
+  Eye,
+  EyeOff,
+  FilePlus2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -66,6 +73,29 @@ const purchaseStatusZh: Record<PurchaseStatus, string> = {
   RETURNED: "已退货",
   CANCELLED: "已撤回",
 };
+
+const PUBLIC_PAYMENT_PENDING_STATUSES = ["PENDING_FUNDS", "APPROVING"];
+const PUBLIC_PAYMENT_APPROVED_STATUSES = ["APPROVED_FUNDS"];
+const REIMBURSEMENT_PENDING_STATUSES = ["PENDING_REIMBURSEMENT"];
+const REIMBURSEMENT_APPROVED_STATUSES = ["APPROVED_REIMBURSEMENT"];
+const LOCKED_PAYMENT_STATUSES = [
+  "PENDING_FUNDS",
+  "APPROVING",
+  "APPROVED_FUNDS",
+  "PENDING_REIMBURSEMENT",
+  "APPROVED_REIMBURSEMENT",
+  "PENDING_REFUND",
+  "REFUNDED",
+  "PAID",
+  "REIMBURSED",
+];
+
+function rowsEveryPaymentStatus(
+  rows: PurchaseRequest[],
+  statuses: readonly string[]
+) {
+  return rows.length > 0 && rows.every((row) => statuses.includes(row.paymentStatus));
+}
 
 function resolvePurchaseAmount(row: PurchaseRequest) {
   const actual = Number(row.actualCost);
@@ -208,6 +238,7 @@ export function PurchasesClient({
   const [reimbursementRows, setReimbursementRows] = useState<PurchaseRequest[]>([]);
   const [requestNoExpandedAll, setRequestNoExpandedAll] = useState(false);
   const [requestNoCollapseSignal, setRequestNoCollapseSignal] = useState(0);
+  const [supplierNameExpandedAll, setSupplierNameExpandedAll] = useState(false);
   const [, startTransition] = useTransition();
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -517,6 +548,11 @@ export function PurchasesClient({
   }
 
   function handleBatchPayment(rows: PurchaseRequest[]) {
+    if (!rows.length) return;
+    if (rows.some((row) => row.paymentStatus !== "UNPAID")) {
+      toast.error("只能选择未进入资金流程的单据发起合并请款。");
+      return;
+    }
     if (resolveBatchPaymentMode(rows) === "mixed") {
       toast.error("不能混选采购垫付和对公结算单据，请分开请款。");
       return;
@@ -525,6 +561,17 @@ export function PurchasesClient({
   }
 
   function handleBatchReimbursement(rows: PurchaseRequest[]) {
+    if (!rows.length) return;
+    if (
+      rows.some(
+        (row) =>
+          row.settlementType !== "采购垫付" ||
+          LOCKED_PAYMENT_STATUSES.includes(row.paymentStatus)
+      )
+    ) {
+      toast.error("只能选择未进入资金流程的采购垫付单据发起报销。");
+      return;
+    }
     setReimbursementRows(rows);
   }
 
@@ -540,9 +587,18 @@ export function PurchasesClient({
 
   function handleConfirmBatchPayment(rows: PurchaseRequest[]) {
     if (!rows.length) return;
-    const isReimbursement = rows.every(
-      (row) => row.paymentStatus === "PENDING_REIMBURSEMENT"
+    const isPublicPayment = rowsEveryPaymentStatus(
+      rows,
+      PUBLIC_PAYMENT_PENDING_STATUSES
     );
+    const isReimbursement = rowsEveryPaymentStatus(
+      rows,
+      REIMBURSEMENT_PENDING_STATUSES
+    );
+    if (!isPublicPayment && !isReimbursement) {
+      toast.error("请只选择同一类待审批单据：对公打款或个人报销，不能混选。");
+      return;
+    }
     if (
       !confirm(
         isReimbursement
@@ -571,9 +627,18 @@ export function PurchasesClient({
 
   function handleFinanceConfirmPayment(rows: PurchaseRequest[]) {
     if (!rows.length) return;
-    const isReimbursement = rows.every(
-      (row) => row.paymentStatus === "APPROVED_REIMBURSEMENT"
+    const isPublicPayment = rowsEveryPaymentStatus(
+      rows,
+      PUBLIC_PAYMENT_APPROVED_STATUSES
     );
+    const isReimbursement = rowsEveryPaymentStatus(
+      rows,
+      REIMBURSEMENT_APPROVED_STATUSES
+    );
+    if (!isPublicPayment && !isReimbursement) {
+      toast.error("请只选择同一类待财务处理单据：对公打款或个人报销，不能混选已完成记录。");
+      return;
+    }
     if (
       !confirm(
         isReimbursement
@@ -602,6 +667,10 @@ export function PurchasesClient({
 
   function handleBatchApprove(rows: PurchaseRequest[]) {
     if (!rows.length) return;
+    if (rows.some((row) => row.status !== "PENDING")) {
+      toast.error("仅待审批单据可批量同意，请刷新后重试。");
+      return;
+    }
     startTransition(async () => {
       try {
         await batchApprovePurchasesAction(rows.map((row) => row.id));
@@ -616,6 +685,10 @@ export function PurchasesClient({
 
   function handleBatchReject(rows: PurchaseRequest[]) {
     if (!rows.length) return;
+    if (rows.some((row) => row.status !== "PENDING")) {
+      toast.error("仅待审批单据可批量驳回，请刷新后重试。");
+      return;
+    }
     const reason = prompt("请输入批量驳回原因（可留空）：") ?? "";
     startTransition(async () => {
       try {
@@ -651,6 +724,7 @@ export function PurchasesClient({
     onConfirmRefund: handleConfirmRefund,
     requestNoExpandedAll,
     requestNoCollapseSignal,
+    supplierNameExpandedAll,
   });
 
   return (
@@ -688,6 +762,22 @@ export function PurchasesClient({
             >
               <ChevronsLeft className="mr-1.5 h-4 w-4" />
               单号全部隐藏
+            </Button>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => setSupplierNameExpandedAll(true)}
+            >
+              <Eye className="mr-1.5 h-4 w-4" />
+              供应商全部显示
+            </Button>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => setSupplierNameExpandedAll(false)}
+            >
+              <EyeOff className="mr-1.5 h-4 w-4" />
+              供应商全部隐藏
             </Button>
             <Button variant="outline" type="button" onClick={handleExportExcel}>
               <Download className="mr-1.5 h-4 w-4" />

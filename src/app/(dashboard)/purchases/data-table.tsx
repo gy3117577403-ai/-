@@ -127,21 +127,40 @@ export function DataTable<TData, TValue>({
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     enableRowSelection: true,
+    getRowId: (row, index) =>
+      String((row as { id?: string }).id ?? index),
   });
 
   const selectedRows = table
     .getFilteredSelectedRowModel()
     .rows.map((row) => row.original);
   const hasSelection = selectedRows.length > 0;
+  const selectedPurchaseStatuses = selectedRows.map(
+    (row) => (row as { status?: string }).status
+  );
   const selectedPaymentStatuses = selectedRows.map(
     (row) => (row as { paymentStatus?: string }).paymentStatus
   );
+  const isSelectedPurchaseApproval =
+    hasSelection && selectedPurchaseStatuses.every((status) => status === "PENDING");
+  const isSelectedPublicPaymentApproval =
+    hasSelection &&
+    selectedPaymentStatuses.every(
+      (status) => status === "PENDING_FUNDS" || status === "APPROVING"
+    );
   const isSelectedReimbursementApproval =
     hasSelection &&
     selectedPaymentStatuses.every((status) => status === "PENDING_REIMBURSEMENT");
+  const canApproveSelectedPayment =
+    isSelectedPublicPaymentApproval || isSelectedReimbursementApproval;
+  const isSelectedPublicPaymentFinance =
+    hasSelection &&
+    selectedPaymentStatuses.every((status) => status === "APPROVED_FUNDS");
   const isSelectedReimbursementFinance =
     hasSelection &&
     selectedPaymentStatuses.every((status) => status === "APPROVED_REIMBURSEMENT");
+  const canFinanceConfirmSelectedPayment =
+    isSelectedPublicPaymentFinance || isSelectedReimbursementFinance;
   const canUsePurchaseFollowupActions =
     activeTab === "pending_action" ||
     activeTab === "completed" ||
@@ -295,8 +314,13 @@ export function DataTable<TData, TValue>({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!hasSelection}
+                  disabled={!isSelectedPurchaseApproval}
                   onClick={() => onBatchApprove(selectedRows)}
+                  title={
+                    hasSelection
+                      ? "仅待审批单据可批量同意"
+                      : "请先勾选待审批单据"
+                  }
                 >
                   <ThumbsUp className="mr-1.5 h-4 w-4" />
                   批量同意 ({selectedRows.length})
@@ -306,8 +330,13 @@ export function DataTable<TData, TValue>({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!hasSelection}
+                  disabled={!isSelectedPurchaseApproval}
                   onClick={() => onBatchReject(selectedRows)}
+                  title={
+                    hasSelection
+                      ? "仅待审批单据可批量驳回"
+                      : "请先勾选待审批单据"
+                  }
                 >
                   <XCircle className="mr-1.5 h-4 w-4" />
                   批量驳回 ({selectedRows.length})
@@ -320,8 +349,13 @@ export function DataTable<TData, TValue>({
             <Button
               type="button"
               variant="default"
-              disabled={!hasSelection}
+              disabled={!canApproveSelectedPayment}
               onClick={() => onApproveBatchPayment(selectedRows)}
+              title={
+                hasSelection
+                  ? "请勿混选对公打款和个人报销，且只能审批待打款/待报销单据"
+                  : "请先勾选待审批单据"
+              }
             >
               <CheckCircle2 className="mr-1.5 h-4 w-4" />
               {isSelectedReimbursementApproval ? "批准报销" : "批准打款"} ({selectedRows.length})
@@ -332,8 +366,13 @@ export function DataTable<TData, TValue>({
             <Button
               type="button"
               variant="default"
-              disabled={!hasSelection}
+              disabled={!canFinanceConfirmSelectedPayment}
               onClick={() => onFinanceConfirmPayment(selectedRows)}
+              title={
+                hasSelection
+                  ? "请勿混选对公打款和个人报销，且只能确认待财务打款/待财务报销单据"
+                  : "请先勾选待财务处理单据"
+              }
             >
               <CircleDollarSign className="mr-1.5 h-4 w-4" />
               {isSelectedReimbursementFinance ? "确认报销打款" : "确认已打款"} ({selectedRows.length})

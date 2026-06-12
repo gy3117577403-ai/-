@@ -347,7 +347,7 @@ export async function createBatchPaymentRequest(
     }
 
     const updated = await tx.purchaseRequest.updateMany({
-      where: { id: { in: cleanIds } },
+      where: { id: { in: cleanIds }, paymentStatus: "UNPAID" },
       data: {
         paymentStatus: "PENDING_FUNDS",
         settlementType,
@@ -460,7 +460,7 @@ export async function submitBatchReimbursementAction(
     }
 
     const updated = await tx.purchaseRequest.updateMany({
-      where: { id: { in: cleanIds } },
+      where: { id: { in: cleanIds }, paymentStatus: "UNPAID" },
       data: {
         paymentStatus: "PENDING_REIMBURSEMENT",
         settlementType: "采购垫付",
