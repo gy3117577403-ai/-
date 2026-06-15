@@ -768,16 +768,21 @@ export function getColumns(options: {
           req.status === "PENDING" &&
           (applicantTrim === sessionName.trim() ||
             applicantTrim === sessionUserId.trim());
+        const isReimbursedAdvanceReceived =
+          req.status === "RECEIVED" &&
+          req.paymentStatus === "REIMBURSED" &&
+          req.settlementType === "采购垫付";
         const showReturnPurchase =
           canPurchaser &&
-          (req.status === "ORDERED" || req.status === "RECEIVED") &&
-          ![
-            "PENDING_REIMBURSEMENT",
-            "APPROVED_REIMBURSEMENT",
-            "REIMBURSED",
-            "PENDING_REFUND",
-            "REFUNDED",
-          ].includes(req.paymentStatus);
+          (((req.status === "ORDERED" || req.status === "RECEIVED") &&
+            ![
+              "PENDING_REIMBURSEMENT",
+              "APPROVED_REIMBURSEMENT",
+              "REIMBURSED",
+              "PENDING_REFUND",
+              "REFUNDED",
+            ].includes(req.paymentStatus)) ||
+            isReimbursedAdvanceReceived);
         const showConfirmRefund =
           (role === "ADMIN" || role === "BOSS" || role === "PURCHASER") &&
           req.status === "RETURNED" &&

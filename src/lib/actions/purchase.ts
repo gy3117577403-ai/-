@@ -751,10 +751,18 @@ export async function returnPurchaseRequestAction(id: string, reason: string) {
     }
     if (
       row.paymentStatus === "PENDING_REIMBURSEMENT" ||
-      row.paymentStatus === "APPROVED_REIMBURSEMENT" ||
-      row.paymentStatus === "REIMBURSED"
+      row.paymentStatus === "APPROVED_REIMBURSEMENT"
     ) {
-      throw new Error("个人垫付报销单据请走报销冲销流程，不能登记为对公退货");
+      throw new Error("个人垫付报销审批中的单据不能退货，请先完成或撤销报销流程");
+    }
+    const isReimbursedAdvanceReturn = row.paymentStatus === "REIMBURSED";
+    if (isReimbursedAdvanceReturn) {
+      if (row.status !== "RECEIVED") {
+        throw new Error("已报销单据必须已入库后才可登记退货");
+      }
+      if (row.settlementType !== "采购垫付") {
+        throw new Error("仅采购垫付且已报销完成的单据可走报销退货流程");
+      }
     }
     if (row.paymentStatus === "PENDING_REFUND" || row.paymentStatus === "REFUNDED") {
       throw new Error("该采购单已处于退货退款流程中");
@@ -768,7 +776,7 @@ export async function returnPurchaseRequestAction(id: string, reason: string) {
     ) {
       nextPaymentStatus = "UNPAID";
     }
-    if (row.paymentStatus === "PAID") {
+    if (row.paymentStatus === "PAID" || row.paymentStatus === "REIMBURSED") {
       nextPaymentStatus = "PENDING_REFUND";
     }
 
@@ -804,8 +812,10 @@ export async function returnPurchaseRequestAction(id: string, reason: string) {
       itemName: row.itemName,
       quantity: row.quantity,
       supplierName: row.supplierName?.trim() || "未记录供应商",
+      reimbursementName: row.reimbursementName?.trim() || "未记录报销人",
       amount: resolvePaymentAmount(row),
       wasReceived: row.status === "RECEIVED",
+      isReimbursedAdvanceReturn,
       previousPaymentStatus: row.paymentStatus,
       nextPaymentStatus,
     };
@@ -826,9 +836,14 @@ export async function returnPurchaseRequestAction(id: string, reason: string) {
       `单号：${result.requestNo}\n` +
       `物资：${result.itemName} x ${result.quantity}\n` +
       `供应商：${result.supplierName}\n` +
+      (result.isReimbursedAdvanceReturn
+        ? `报销人：${result.reimbursementName}\n`
+        : "") +
       `涉及金额：<font color="warning">${result.amount.toFixed(2)}元</font>\n` +
       `退货原因：${trimmedReason}\n\n` +
-      (result.nextPaymentStatus === "PENDING_REFUND"
+      (result.isReimbursedAdvanceReturn
+        ? `<font color="info">@财务</font> 该单据已报销且已入库，现已退货，请跟进商家退款或报销人退回公司款项，并在系统确认退款。`
+        : result.nextPaymentStatus === "PENDING_REFUND"
         ? `<font color="info">@财务</font> 该单据已付款，请跟进供应商退款并在系统确认退款。`
         : `<font color="info">@采购</font> 该单据已登记退货，请跟进供应商处理。`)
   );
@@ -859,22 +874,32 @@ export async function confirmPurchaseRefundAction(id: string) {
     data: { paymentStatus: "REFUNDED" },
   });
 
+  const isReimbursedAdvanceRefund =
+    row.settlementType === "采购垫付" && Boolean(row.reimbursementName?.trim());
+  const reimbursementName = row.reimbursementName?.trim() || "未记录报销人";
+  const supplierName = row.supplierName?.trim() || "未记录供应商";
+
   await createLog(
     session.name,
     "确认退货退款",
     "物品采购",
-    `采购单 ${row.requestNo} 已确认供应商退款到账`
+    isReimbursedAdvanceRefund
+      ? `采购单 ${row.requestNo} 已确认采购垫付退货退款到账，报销人：${reimbursementName}`
+      : `采购单 ${row.requestNo} 已确认供应商退款到账`
   );
 
   revalidatePath("/purchases");
 
   void sendWeComMessage(
-    `✅ **退货退款完成通知**\n` +
+      `✅ **退货退款完成通知**\n` +
       `单号：${row.requestNo}\n` +
       `物资：${row.itemName} x ${row.quantity}\n` +
-      `供应商：${row.supplierName?.trim() || "未记录供应商"}\n` +
+      `供应商：${supplierName}\n` +
+      (isReimbursedAdvanceRefund ? `报销人：${reimbursementName}\n` : "") +
       `退款金额：<font color="warning">${resolvePaymentAmount(row).toFixed(2)}元</font>\n\n` +
-      `<font color="info">@采购</font> 财务已确认该退货单退款到账，请知悉。`
+      (isReimbursedAdvanceRefund
+        ? `<font color="info">@${reimbursementName}</font> 财务已确认该已报销退货单的退款/退回款项到账，请知悉。`
+        : `<font color="info">@采购</font> 财务已确认该退货单退款到账，请知悉。`)
   );
 }
 

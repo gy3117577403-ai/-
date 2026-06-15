@@ -347,8 +347,13 @@ export function PurchasesClient({
       return;
     }
     if (
-      returnTarget.paymentStatus === "PAID" &&
-      !confirm("该单据已付款，登记退货后将进入待退款状态，确定继续吗？")
+      (returnTarget.paymentStatus === "PAID" ||
+        returnTarget.paymentStatus === "REIMBURSED") &&
+      !confirm(
+        returnTarget.paymentStatus === "REIMBURSED"
+          ? "该单据已报销且已入库，登记退货后将进入待退款状态，需要财务确认退款/退回款项到账，确定继续吗？"
+          : "该单据已付款，登记退货后将进入待退款状态，确定继续吗？"
+      )
     ) {
       return;
     }
@@ -357,7 +362,8 @@ export function PurchasesClient({
       try {
         await returnPurchaseRequestAction(returnTarget.id, reason);
         toast.success(
-          returnTarget.paymentStatus === "PAID"
+          returnTarget.paymentStatus === "PAID" ||
+            returnTarget.paymentStatus === "REIMBURSED"
             ? "已登记退货，待财务跟进退款"
             : "已登记退货"
         );
@@ -979,9 +985,12 @@ export function PurchasesClient({
                 : ""}
             </DialogDescription>
           </DialogHeader>
-          {returnTarget?.paymentStatus === "PAID" && (
+          {(returnTarget?.paymentStatus === "PAID" ||
+            returnTarget?.paymentStatus === "REIMBURSED") && (
             <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              该单据已付款，登记退货后付款状态会进入“待退款”，请财务后续确认退款到账。
+              {returnTarget.paymentStatus === "REIMBURSED"
+                ? "该单据已报销且已入库，登记退货后付款状态会进入“待退款”，请财务后续确认退款或退回款项到账。"
+                : "该单据已付款，登记退货后付款状态会进入“待退款”，请财务后续确认退款到账。"}
             </div>
           )}
           <div className="space-y-2">
