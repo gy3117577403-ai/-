@@ -94,12 +94,12 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
   function onSubmit(values: FormValues) {
     startTransition(async () => {
       try {
-        await createPurchaseAction({
+        const result = await createPurchaseAction({
           applicant: values.applicant,
           category,
           items: values.items,
         });
-        toast.success(`已提交 ${values.items.length} 项请购，等待审批`);
+        toast.success(`已提交 ${result.count} 项请购，等待审批`);
         onOpenChange(false);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "提交失败");

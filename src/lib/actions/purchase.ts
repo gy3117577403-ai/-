@@ -26,6 +26,10 @@ type CreatePurchaseInput = {
   items: CreatePurchaseItemInput[];
 };
 
+type CreatePurchaseResult = {
+  count: number;
+};
+
 type BatchPaymentRequestInput = {
   settlementType: string;
   supplierName: string;
@@ -99,7 +103,14 @@ export async function getPendingTasksCountAction(): Promise<number> {
   return 0;
 }
 
-export async function createPurchaseAction(data: CreatePurchaseInput) {
+function createPurchaseRequestNo(batchTime: number, index: number) {
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `PR-${batchTime}-${random}-${String(index + 1).padStart(2, "0")}`;
+}
+
+export async function createPurchaseAction(
+  data: CreatePurchaseInput
+): Promise<CreatePurchaseResult> {
   const session = await getSession();
   if (!session) throw new Error("未登录");
 
@@ -133,7 +144,7 @@ export async function createPurchaseAction(data: CreatePurchaseInput) {
   await prisma.$transaction(async (tx) => {
     await tx.purchaseRequest.createMany({
       data: items.map((item, index) => ({
-        requestNo: `PR-${now}-${String(index + 1).padStart(2, "0")}`,
+        requestNo: createPurchaseRequestNo(now, index),
         applicant,
         itemName: item.itemName,
         quantity: item.quantity,
@@ -148,7 +159,7 @@ export async function createPurchaseAction(data: CreatePurchaseInput) {
   revalidatePath("/purchases");
 
   const totalAmount = items.reduce((sum, item) => sum + item.estimatedCost, 0);
-  await sendWeComMessage(
+  void sendWeComMessage(
     buildBatchPurchaseApprovalMessage({
       applicant,
       firstItemName: items[0].itemName,
@@ -156,6 +167,8 @@ export async function createPurchaseAction(data: CreatePurchaseInput) {
       totalAmount,
     })
   );
+
+  return { count: items.length };
 }
 
 export async function createPurchase(data: CreatePurchaseInput) {
