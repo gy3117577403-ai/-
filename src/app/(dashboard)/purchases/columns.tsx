@@ -115,6 +115,34 @@ function needsInvoice(row: PurchaseRequest) {
   return row.status === "RECEIVED" && isFinancialSettled(row) && !hasInvoice(row);
 }
 
+function paymentStatusMatchesFilter(
+  status: unknown,
+  filterValue?: string | null
+) {
+  if (!filterValue || filterValue === "all") return true;
+  if (filterValue === "__public_pending__") {
+    return status === "PENDING_FUNDS" || status === "APPROVING";
+  }
+  if (filterValue === "__pending_funds__") {
+    return (
+      status === "PENDING_FUNDS" ||
+      status === "APPROVING" ||
+      status === "PENDING_REIMBURSEMENT"
+    );
+  }
+  if (filterValue === "__finance__") {
+    return (
+      status === "APPROVED_FUNDS" ||
+      status === "APPROVED_REIMBURSEMENT" ||
+      status === "PENDING_REFUND" ||
+      status === "REFUNDED" ||
+      status === "PAID" ||
+      status === "REIMBURSED"
+    );
+  }
+  return status === filterValue;
+}
+
 function hasSupplierChangeAfterApproval(row: PurchaseRequest) {
   if (row.paymentStatus !== "APPROVED_FUNDS" || !row.paymentApprovedAt) {
     return false;
@@ -580,28 +608,27 @@ export function getColumns(options: {
           </div>
         );
       },
-      filterFn: (row, _columnId, filterValue: string) => {
-        if (!filterValue) return true;
-        if (filterValue === "__pending_funds__") {
-          const status = row.getValue("paymentStatus");
+      filterFn: (row, _columnId, filterValue: unknown) => {
+        const status = row.getValue("paymentStatus");
+        if (
+          filterValue &&
+          typeof filterValue === "object" &&
+          "workspace" in filterValue &&
+          "status" in filterValue
+        ) {
+          const composedFilter = filterValue as {
+            workspace?: string | null;
+            status?: string | null;
+          };
           return (
-            status === "PENDING_FUNDS" ||
-            status === "APPROVING" ||
-            status === "PENDING_REIMBURSEMENT"
+            paymentStatusMatchesFilter(status, composedFilter.workspace) &&
+            paymentStatusMatchesFilter(status, composedFilter.status)
           );
         }
-        if (filterValue === "__finance__") {
-          const status = row.getValue("paymentStatus");
-          return (
-            status === "APPROVED_FUNDS" ||
-            status === "APPROVED_REIMBURSEMENT" ||
-            status === "PENDING_REFUND" ||
-            status === "REFUNDED" ||
-            status === "PAID" ||
-            status === "REIMBURSED"
-          );
-        }
-        return row.getValue("paymentStatus") === filterValue;
+        return paymentStatusMatchesFilter(
+          status,
+          typeof filterValue === "string" ? filterValue : undefined
+        );
       },
     },
     {

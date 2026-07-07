@@ -72,6 +72,35 @@ const workspaceTabs: { value: ActiveTab; label: string }[] = [
   { value: "completed", label: "已完成" },
 ];
 
+const paymentStatusOptions = [
+  { value: "all", label: "全部付款" },
+  { value: "UNPAID", label: "未付款" },
+  { value: "__public_pending__", label: "待打款审批" },
+  { value: "APPROVED_FUNDS", label: "待财务打款" },
+  { value: "PAID", label: "已付款" },
+  { value: "PENDING_REIMBURSEMENT", label: "待报销审批" },
+  { value: "APPROVED_REIMBURSEMENT", label: "待财务报销" },
+  { value: "REIMBURSED", label: "已报销完成" },
+  { value: "PENDING_REFUND", label: "待退款" },
+  { value: "REFUNDED", label: "已退款" },
+];
+
+function getWorkspacePaymentFilter(tab: ActiveTab) {
+  if (tab === "payment_approval") return "__pending_funds__";
+  if (tab === "finance_payment") return "__finance__";
+  return undefined;
+}
+
+function buildPaymentStatusFilter(tab: ActiveTab, selectedStatus: string) {
+  const workspace = getWorkspacePaymentFilter(tab);
+  const status = selectedStatus === "all" ? undefined : selectedStatus;
+
+  if (workspace && status) {
+    return { workspace, status };
+  }
+  return status ?? workspace;
+}
+
 export function DataTable<TData, TValue>({
   columns,
   data,
@@ -99,6 +128,7 @@ export function DataTable<TData, TValue>({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [supplierFilter, setSupplierFilter] = useState("");
   const [settlementFilter, setSettlementFilter] = useState("all");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [paymentDateFilter, setPaymentDateFilter] = useState("");
 
   const table = useReactTable({
@@ -232,41 +262,54 @@ export function DataTable<TData, TValue>({
 
     if (nextTab === "all") {
       table.getColumn("status")?.setFilterValue(undefined);
-      table.getColumn("paymentStatus")?.setFilterValue(undefined);
+      table
+        .getColumn("paymentStatus")
+        ?.setFilterValue(buildPaymentStatusFilter(nextTab, "all"));
       return;
     }
 
     if (nextTab === "purchase_approval") {
       table.getColumn("status")?.setFilterValue("PENDING");
-      table.getColumn("paymentStatus")?.setFilterValue(undefined);
+      table
+        .getColumn("paymentStatus")
+        ?.setFilterValue(buildPaymentStatusFilter(nextTab, "all"));
       return;
     }
 
     if (nextTab === "payment_approval") {
       table.getColumn("status")?.setFilterValue(undefined);
-      table.getColumn("paymentStatus")?.setFilterValue("__pending_funds__");
+      table
+        .getColumn("paymentStatus")
+        ?.setFilterValue(buildPaymentStatusFilter(nextTab, "all"));
       return;
     }
 
     if (nextTab === "finance_payment") {
       table.getColumn("status")?.setFilterValue(undefined);
-      table.getColumn("paymentStatus")?.setFilterValue("__finance__");
+      table
+        .getColumn("paymentStatus")
+        ?.setFilterValue(buildPaymentStatusFilter(nextTab, "all"));
       return;
     }
 
     if (nextTab === "pending_action") {
       table.getColumn("status")?.setFilterValue("__active__");
-      table.getColumn("paymentStatus")?.setFilterValue(undefined);
+      table
+        .getColumn("paymentStatus")
+        ?.setFilterValue(buildPaymentStatusFilter(nextTab, "all"));
       return;
     }
 
     table.getColumn("status")?.setFilterValue("__done__");
-    table.getColumn("paymentStatus")?.setFilterValue(undefined);
+    table
+      .getColumn("paymentStatus")
+      ?.setFilterValue(buildPaymentStatusFilter(nextTab, "all"));
   }
 
   function handleTabChange(value: string) {
     const nextTab = value as ActiveTab;
     setActiveTab(nextTab);
+    setPaymentStatusFilter("all");
     applyWorkspaceFilter(nextTab);
   }
 
@@ -281,6 +324,15 @@ export function DataTable<TData, TValue>({
     table
       .getColumn("settlementType")
       ?.setFilterValue(nextValue === "all" ? undefined : nextValue);
+  }
+
+  function handlePaymentStatusFilter(value: string | null) {
+    const nextValue = value ?? "all";
+    setPaymentStatusFilter(nextValue);
+    table.resetRowSelection();
+    table
+      .getColumn("paymentStatus")
+      ?.setFilterValue(buildPaymentStatusFilter(activeTab, nextValue));
   }
 
   function handlePaymentDateFilter(value: string) {
@@ -451,6 +503,22 @@ export function DataTable<TData, TValue>({
               <SelectItem value="月结">月结</SelectItem>
               <SelectItem value="对公现结">对公现结</SelectItem>
               <SelectItem value="采购垫付">采购垫付</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={paymentStatusFilter}
+            onValueChange={handlePaymentStatusFilter}
+          >
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="付款状态" />
+            </SelectTrigger>
+            <SelectContent>
+              {paymentStatusOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
