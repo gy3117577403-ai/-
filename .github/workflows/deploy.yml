@@ -1,10 +1,10 @@
-# 推送到 main/master 后构建镜像并推送至阿里云 ACR（个人版实例）
+﻿# 推送到 main/master 后构建镜像并推送至阿里云 ACR（个人版实例）
 # 需在仓库 Settings → Secrets 中配置：
 #   ALIYUN_USERNAME  ACR 登录用户名
 #   ALIYUN_PASSWORD  ACR 登录密码或临时令牌
 # 可选：
 #   SEALOS_WEBHOOK_URL  Sealos 应用更新 Webhook，推送成功后 POST 触发拉取新镜像
-# redeploy-stamp: 2026-07-07T01:13:42Z
+# redeploy-stamp: 2026-07-07T01:44:49Z
 
 name: Build and Push Docker Image
 
