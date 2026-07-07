@@ -109,7 +109,7 @@ export function MarkOrderedDialog({
           <DialogTitle>标记已采购</DialogTitle>
           <DialogDescription>
             {purchase
-              ? `登记实际花费（单号 ${purchase.requestNo}）。实际金额 ≥ ${THRESHOLD} 元须填写合同编号，并进入付款待审。`
+              ? `登记实际花费（单号 ${purchase.requestNo}）。实际金额 ≥ ${THRESHOLD} 元须填写合同编号；付款请后续手动提交请款。`
               : ""}
           </DialogDescription>
         </DialogHeader>
@@ -137,7 +137,7 @@ export function MarkOrderedDialog({
           {showLargeFields && (
             <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
               <p className="text-xs font-medium text-amber-900">
-                大额采购（≥ {THRESHOLD} 元）：须登记合同编号；付款将进入「待付款审批」。
+                大额采购（≥ {THRESHOLD} 元）：须登记合同编号；付款请后续手动提交请款。
               </p>
               <div className="space-y-1.5">
                 <Label htmlFor="contractNo">合同编号 *</Label>

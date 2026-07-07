@@ -1183,14 +1183,12 @@ export async function markOrderedWithDetailsAction(
   const trimmedContract = contractNo?.trim() || null;
   const trimmedInvoice = invoiceNo?.trim() || null;
 
-  let paymentStatus: PaymentStatus = "UNPAID";
   let finalContract: string | null = trimmedContract;
 
   if (cost >= LARGE_AMOUNT_THRESHOLD) {
     if (!trimmedContract) {
       throw new Error("实际金额达到或超过 500 元时，必须填写合同编号");
     }
-    paymentStatus = "PENDING_FUNDS";
     finalContract = trimmedContract;
   }
 
@@ -1201,7 +1199,6 @@ export async function markOrderedWithDetailsAction(
       actualCost: cost,
       contractNo: finalContract,
       invoiceNo: trimmedInvoice,
-      paymentStatus,
     },
   });
 
@@ -1209,7 +1206,7 @@ export async function markOrderedWithDetailsAction(
     session.name,
     "标记已采购",
     "物品采购",
-    `请购单 ${row.requestNo} 已采购，实际金额 ${cost} 元，付款状态 ${paymentStatus}`
+    `请购单 ${row.requestNo} 已采购，实际金额 ${cost} 元，付款状态保持 ${row.paymentStatus}`
   );
 
   revalidatePath("/purchases");
