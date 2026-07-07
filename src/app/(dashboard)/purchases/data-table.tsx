@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, type MutableRefObject, type ReactNode } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -115,7 +122,8 @@ export function DataTable<TData, TValue>({
   onFinanceConfirmPayment,
 }: DataTableProps<TData, TValue>) {
   const [activeTab, setActiveTab] = useState<ActiveTab>("all");
-  const [globalFilter, setGlobalFilter] = useState("");
+  const [globalFilterInput, setGlobalFilterInput] = useState("");
+  const globalFilter = useDeferredValue(globalFilterInput);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] =
     useState<VisibilityState>({
@@ -127,6 +135,7 @@ export function DataTable<TData, TValue>({
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [sorting, setSorting] = useState<SortingState>([]);
   const [supplierFilter, setSupplierFilter] = useState("");
+  const deferredSupplierFilter = useDeferredValue(supplierFilter);
   const [settlementFilter, setSettlementFilter] = useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [paymentDateFilter, setPaymentDateFilter] = useState("");
@@ -141,7 +150,7 @@ export function DataTable<TData, TValue>({
       rowSelection,
       sorting,
     },
-    onGlobalFilterChange: setGlobalFilter,
+    onGlobalFilterChange: setGlobalFilterInput,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
@@ -218,36 +227,43 @@ export function DataTable<TData, TValue>({
     });
   const canShowBatchContract = canUsePurchaseFollowupActions && hasSelection;
   const filteredRows = table.getFilteredRowModel().rows;
-  const totalActualCost =
-    filteredRows.reduce((sum, row) => {
-      const item = row.original as { actualCost?: number | null };
-      const actualCost = Number(item.actualCost);
-      if (!Number.isFinite(actualCost)) return sum;
-      return sum + Math.round(actualCost * 100);
-    }, 0) / 100;
-  const hasSupplierRiskInFinance =
-    activeTab === "finance_payment" &&
-    filteredRows.some((row) => {
-      const item = row.original as {
-        paymentStatus?: string;
-        paymentApprovedAt?: Date | string | null;
-        updatedAt?: Date | string | null;
-      };
-      if (!item.paymentApprovedAt || !item.updatedAt) {
-        return false;
-      }
-      if (
-        item.paymentStatus !== "APPROVED_FUNDS" &&
-        item.paymentStatus !== "APPROVED_REIMBURSEMENT"
-      ) {
-        return false;
-      }
-      return (
-        new Date(item.updatedAt).getTime() -
-          new Date(item.paymentApprovedAt).getTime() >
-        5000
-      );
-    });
+  const visibleRows = table.getRowModel().rows;
+  const totalActualCost = useMemo(
+    () =>
+      filteredRows.reduce((sum, row) => {
+        const item = row.original as { actualCost?: number | null };
+        const actualCost = Number(item.actualCost);
+        if (!Number.isFinite(actualCost)) return sum;
+        return sum + Math.round(actualCost * 100);
+      }, 0) / 100,
+    [filteredRows]
+  );
+  const hasSupplierRiskInFinance = useMemo(
+    () =>
+      activeTab === "finance_payment" &&
+      filteredRows.some((row) => {
+        const item = row.original as {
+          paymentStatus?: string;
+          paymentApprovedAt?: Date | string | null;
+          updatedAt?: Date | string | null;
+        };
+        if (!item.paymentApprovedAt || !item.updatedAt) {
+          return false;
+        }
+        if (
+          item.paymentStatus !== "APPROVED_FUNDS" &&
+          item.paymentStatus !== "APPROVED_REIMBURSEMENT"
+        ) {
+          return false;
+        }
+        return (
+          new Date(item.updatedAt).getTime() -
+            new Date(item.paymentApprovedAt).getTime() >
+          5000
+        );
+      }),
+    [activeTab, filteredRows]
+  );
 
   useEffect(() => {
     if (!tableRef) return;
@@ -256,6 +272,13 @@ export function DataTable<TData, TValue>({
       tableRef.current = null;
     };
   }, [table, tableRef]);
+
+  useEffect(() => {
+    const nextValue = deferredSupplierFilter || undefined;
+    const column = table.getColumn("supplierName");
+    if (column?.getFilterValue() === nextValue) return;
+    column?.setFilterValue(nextValue);
+  }, [deferredSupplierFilter, table]);
 
   function applyWorkspaceFilter(nextTab: ActiveTab) {
     table.resetRowSelection();
@@ -315,7 +338,6 @@ export function DataTable<TData, TValue>({
 
   function handleSupplierFilter(value: string) {
     setSupplierFilter(value);
-    table.getColumn("supplierName")?.setFilterValue(value);
   }
 
   function handleSettlementFilter(value: string | null) {
@@ -342,7 +364,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="w-full space-y-4">
-      <div className="sticky top-16 z-30 -mx-1 flex w-[calc(100%+0.5rem)] flex-col gap-3 border-b border-slate-200 bg-slate-50/95 px-1 py-2 shadow-sm backdrop-blur xl:flex-row xl:items-center xl:justify-between">
+      <div className="sticky top-16 z-30 -mx-1 flex w-[calc(100%+0.5rem)] flex-col gap-3 border-b border-slate-200 bg-slate-50 px-1 py-2 shadow-sm xl:flex-row xl:items-center xl:justify-between">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList>
             {workspaceTabs.map((tab) => (
@@ -481,8 +503,8 @@ export function DataTable<TData, TValue>({
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               placeholder="搜索单号、申请人或物资"
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
+              value={globalFilterInput}
+              onChange={(e) => setGlobalFilterInput(e.target.value)}
               className="w-64 pl-9"
             />
           </div>
@@ -540,7 +562,10 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
-      <div className="relative max-h-[calc(100vh-220px)] w-full overflow-auto rounded-md border bg-white">
+      <div
+        className="relative max-h-[calc(100vh-220px)] w-full overflow-auto overscroll-contain rounded-md border bg-white"
+        style={{ scrollbarGutter: "stable" }}
+      >
         <table className="w-full caption-bottom border-separate border-spacing-0 text-sm">
           <TableHeader className="bg-white [&_tr]:border-b">
             {table.getHeaderGroups().map((hg) => (
@@ -548,7 +573,7 @@ export function DataTable<TData, TValue>({
                 {hg.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="sticky top-0 z-30 bg-white shadow-[0_1px_0_0_rgba(226,232,240,1)]"
+                    className="sticky top-0 z-30 border-b border-slate-200 bg-white"
                   >
                     {header.isPlaceholder ? null : (
                       <button
@@ -573,8 +598,8 @@ export function DataTable<TData, TValue>({
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
+            {visibleRows.length ? (
+              visibleRows.map((row) => (
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() ? "selected" : undefined}
