@@ -238,6 +238,14 @@ export function DataTable<TData, TValue>({
       }, 0) / 100,
     [filteredRows]
   );
+  const selectedActualCost =
+    selectedRows.reduce((sum, row) => {
+      const item = row as { actualCost?: number | null };
+      const actualCost = Number(item.actualCost);
+      if (!Number.isFinite(actualCost)) return sum;
+      return sum + Math.round(actualCost * 100);
+    }, 0) / 100;
+  const displayedActualCost = hasSelection ? selectedActualCost : totalActualCost;
   const hasSupplierRiskInFinance = useMemo(
     () =>
       activeTab === "finance_payment" &&
@@ -629,10 +637,13 @@ export function DataTable<TData, TValue>({
       </div>
 
       <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-        <span>共 {filteredRows.length} 条记录</span>
+        <span>
+          共 {filteredRows.length} 条记录
+          {hasSelection ? `，已选 ${selectedRows.length} 条` : ""}
+        </span>
         <span className="font-semibold text-foreground">
-          当前筛选合计金额：
-          <span className="text-red-600">¥ {totalActualCost.toFixed(2)}</span>
+          {hasSelection ? "当前勾选合计金额：" : "当前筛选合计金额："}
+          <span className="text-red-600">¥ {displayedActualCost.toFixed(2)}</span>
         </span>
       </div>
     </div>
