@@ -7,6 +7,7 @@ import type {
   PaymentStatus,
   PurchaseRequest,
   PurchaseStatus,
+  PurchaseUrgency,
 } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,29 @@ const paymentBadge: Record<
   PENDING_REFUND: { label: "待退款", className: "bg-rose-500/90 text-white" },
   REFUNDED: { label: "已退款", className: "bg-emerald-700/90 text-white" },
   REIMBURSED: { label: "已报销完成", className: "bg-emerald-600/90 text-white" },
+};
+
+const urgencyBadge: Record<
+  PurchaseUrgency,
+  { label: string; className: string }
+> = {
+  NORMAL: {
+    label: "普通",
+    className: "border-slate-200 bg-slate-100 text-slate-600",
+  },
+  URGENT: {
+    label: "紧急",
+    className: "border-amber-200 bg-amber-100 text-amber-700",
+  },
+  CRITICAL: {
+    label: "特急",
+    className: "border-red-200 bg-red-100 text-red-700",
+  },
+};
+const urgencySortRank: Record<PurchaseUrgency, number> = {
+  CRITICAL: 0,
+  URGENT: 1,
+  NORMAL: 2,
 };
 
 const LARGE_AMOUNT = 500;
@@ -406,6 +430,32 @@ export function getColumns(options: {
             title={itemName}
           >
             <span className="leading-snug">{itemName}</span>
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "urgency",
+      header: () => (
+        <span className="block w-[64px] text-center">紧急度</span>
+      ),
+      enableSorting: true,
+      sortingFn: (rowA, rowB, columnId) => {
+        const urgencyA = rowA.getValue(columnId) as PurchaseUrgency;
+        const urgencyB = rowB.getValue(columnId) as PurchaseUrgency;
+        return (
+          (urgencySortRank[urgencyA] ?? urgencySortRank.NORMAL) -
+          (urgencySortRank[urgencyB] ?? urgencySortRank.NORMAL)
+        );
+      },
+      cell: ({ row }) => {
+        const urgency = row.getValue("urgency") as PurchaseUrgency;
+        const config = urgencyBadge[urgency] ?? urgencyBadge.NORMAL;
+        return (
+          <div className="flex w-[64px] justify-center">
+            <Badge variant="outline" className={config.className}>
+              {config.label}
+            </Badge>
           </div>
         );
       },

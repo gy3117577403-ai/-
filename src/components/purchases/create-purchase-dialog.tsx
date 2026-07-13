@@ -29,7 +29,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createPurchaseAction } from "@/lib/actions/purchase";
 import { toast } from "sonner";
-import type { ItemCategory } from "@prisma/client";
+import type { ItemCategory, PurchaseUrgency } from "@prisma/client";
+
+const urgencyOptions: Array<{
+  value: PurchaseUrgency;
+  label: string;
+  dotClassName: string;
+}> = [
+  { value: "NORMAL", label: "普通", dotClassName: "bg-slate-400" },
+  { value: "URGENT", label: "紧急", dotClassName: "bg-amber-500" },
+  { value: "CRITICAL", label: "特急", dotClassName: "bg-red-600" },
+];
 
 const itemSchema = z.object({
   itemName: z.string().min(1, "请填写物资型号"),
@@ -60,6 +70,7 @@ interface Props {
 export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
   const [isPending, startTransition] = useTransition();
   const [category, setCategory] = useState<ItemCategory>("JIG");
+  const [urgency, setUrgency] = useState<PurchaseUrgency>("NORMAL");
 
   const {
     control,
@@ -84,6 +95,7 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
     if (!open) return;
     queueMicrotask(() => {
       setCategory("JIG");
+      setUrgency("NORMAL");
       reset({
         applicant: "",
         items: [emptyItem],
@@ -97,6 +109,7 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
         const result = await createPurchaseAction({
           applicant: values.applicant,
           category,
+          urgency,
           items: values.items,
         });
         toast.success(`已提交 ${result.count} 项请购，等待审批`);
@@ -122,7 +135,7 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
           onSubmit={handleSubmit(onSubmit)}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="applicant">申请人</Label>
               <Input
@@ -151,6 +164,30 @@ export function CreatePurchaseDialog({ open, onOpenChange }: Props) {
                 <SelectContent>
                   <SelectItem value="JIG">生产治具</SelectItem>
                   <SelectItem value="OTHER">其他工具/设备</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>紧急程度</Label>
+              <Select
+                value={urgency}
+                onValueChange={(value) =>
+                  setUrgency((value ?? "NORMAL") as PurchaseUrgency)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {urgencyOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full ${option.dotClassName}`}
+                        aria-hidden="true"
+                      />
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

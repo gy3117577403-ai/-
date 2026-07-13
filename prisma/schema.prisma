@@ -132,6 +132,13 @@ enum ItemCategory {
   OTHER // 其他工具/设备
 }
 
+/// 采购紧急程度
+enum PurchaseUrgency {
+  NORMAL // 普通
+  URGENT // 紧急
+  CRITICAL // 特急
+}
+
 /// 采购申请状态
 enum PurchaseStatus {
   PENDING // 待审批
@@ -179,6 +186,7 @@ model PurchaseRequest {
   reimbursementBank String? // 报销人开户行
   reimbursementName String? // 报销收款人姓名
   category        ItemCategory    @default(JIG) // 物资分类
+  urgency         PurchaseUrgency @default(NORMAL) // 紧急程度
   status          PurchaseStatus  @default(PENDING)
   remark          String? // 驳回理由或备注
   createdAt       DateTime        @default(now())

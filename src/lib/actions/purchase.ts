@@ -1,7 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { ItemCategory, PaymentStatus, PurchaseStatus } from "@prisma/client";
+import type {
+  ItemCategory,
+  PaymentStatus,
+  PurchaseStatus,
+  PurchaseUrgency,
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { createLog } from "@/lib/actions/log";
@@ -23,6 +28,7 @@ type CreatePurchaseItemInput = {
 type CreatePurchaseInput = {
   applicant: string;
   category: ItemCategory;
+  urgency: PurchaseUrgency;
   items: CreatePurchaseItemInput[];
 };
 
@@ -65,6 +71,8 @@ const ACTIVE_PAYMENT_FLOW_STATUSES: PaymentStatus[] = [
   "APPROVED_REIMBURSEMENT",
   "PENDING_REFUND",
 ];
+const PURCHASE_URGENCIES: PurchaseUrgency[] = ["NORMAL", "URGENT", "CRITICAL"];
+
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -117,6 +125,9 @@ export async function createPurchaseAction(
   const applicant = data.applicant.trim();
   if (!applicant) throw new Error("请填写申请人");
   if (!data.items?.length) throw new Error("请至少添加一项物资");
+  if (!PURCHASE_URGENCIES.includes(data.urgency)) {
+    throw new Error("请选择有效的紧急程度");
+  }
 
   const items = data.items.map((item, index) => {
     const itemName = item.itemName.trim();
@@ -150,6 +161,7 @@ export async function createPurchaseAction(
         quantity: item.quantity,
         estimatedCost: item.estimatedCost,
         category: data.category,
+        urgency: data.urgency,
         link: item.link,
         status: "PENDING",
       })),
